@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fail Forward Gallery — Asian Youth Failure Résumé Exhibition</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ==================== NAVIGATION ==================== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo" data-page="home">Fail Forward Gallery</a>
+    <button type="button" class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">☰</button>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#" data-page="archive" class="nav-link">Story Archive</a></li>
+      <li><a href="#" data-page="advice" class="nav-link">Advice Hub</a></li>
+      <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
+      <li><a href="#" data-page="about" class="nav-link">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ==================== HOME PAGE ==================== -->
+<section id="page-home" class="page active">
+  <div class="hero">
+    <div class="hero-content">
+      <h1 class="hero-title">Fail Forward<br><span class="hero-sub">Gallery</span></h1>
+      <p class="hero-zh">亚洲青年失败简历展</p>
+      <p class="hero-desc">A prototype for an online platform and occasional pop-up exhibition where students can anonymously share failure résumés — transforming shame into shared resilience and normalising the messiness of growth.</p>
+      <div class="hero-actions">
+        <a href="#" class="btn btn-primary" data-page="archive">Explore Stories</a>
+        <a href="#" class="btn btn-outline" data-page="submit">Share Your Story</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title">What Is Fail Forward Gallery?</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📖</div>
+        <h3>Failure Story Archive</h3>
+        <p>Browse anonymous stories of academic, career, and social setbacks submitted by university students across China. Filter by theme, tag, or background. Every story is a reminder: you are not alone.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💡</div>
+        <h3>Actionable Advice Hub</h3>
+        <p>Evidence-based, culturally sensitive guidance for specific failure scenarios. Not generic platitudes — concrete strategies developed from research and lived experience.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤝</div>
+        <h3>Choice-Based Support</h3>
+        <p>Submitters choose how they want to be supported: encouragement, shared experiences, gentle advice, or simply to be witnessed in silence. You set the boundaries.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏛️</div>
+        <h3>Pop-Up Exhibitions</h3>
+        <p>Periodic physical gallery spaces on university campuses where failure résumés become tangible — a collective ritual of witnessing and rewriting the story of setback.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section section-alt">
+    <h2 class="section-title">Who Is This For?</h2>
+    <div class="audience-grid">
+      <div class="audience-item">
+        <strong>🎓 University Students (19–24)</strong>
+        <p>Undergraduate and postgraduate students at Chinese universities — 985, 211, provincial, and vocational institutions.</p>
+      </div>
+      <div class="audience-item">
+        <strong>🌾 Rural & First-Generation Students</strong>
+        <p>Students navigating economic precarity, cultural dislocation, and the weight of being "the hope of the village."</p>
+      </div>
+      <div class="audience-item">
+        <strong>✈️ Exchange & International Students</strong>
+        <p>Chinese students abroad confronting language barriers, loneliness, visa stress, and cultural adaptation.</p>
+      </div>
+      <div class="audience-item">
+        <strong>🏙️ Urban Students at All Tiers</strong>
+        <p>From elite institutions to vocational colleges — failure does not discriminate by university ranking.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-title">Our Values</h2>
+    <div class="values-banner">
+      <div class="value-item">
+        <span class="value-word">Inclusivity</span>
+        <span class="value-desc">Every background, every university tier, every kind of failure has a seat at this table.</span>
+      </div>
+      <div class="value-item">
+        <span class="value-word">Resilience</span>
+        <span class="value-desc">Not the toxic "bounce back instantly" kind — the slow, communal, compassionate process of growing through what breaks us.</span>
+      </div>
+      <div class="value-item">
+        <span class="value-word">Dignity</span>
+        <span class="value-desc">Every story is treated with respect. Submitters control how their narrative is received.</span>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+    <p>Inclusivity &amp; Resilience &bull; 失败是向前的一步</p>
+  </footer>
+</section>
+
+<!-- ==================== STORY ARCHIVE PAGE ==================== -->
+<section id="page-archive" class="page">
+  <div class="page-header">
+    <span class="prototype-label">Prototype preview</span>
+    <h1 id="archive-title">Failure Story Archive</h1>
+    <p>This demo contains anonymised sample stories for exploring the experience. Browse, witness, and respond within each author’s chosen boundary.</p>
+  </div>
+
+  <div class="archive-controls" aria-labelledby="archive-title">
+    <section class="filter-group" aria-labelledby="board-filter-label">
+      <h2 class="filter-heading" id="board-filter-label">Thematic board</h2>
+      <div class="filter-tabs" id="board-filters">
+        <button type="button" class="filter-tab active" data-board="all" aria-pressed="true">All Stories</button>
+        <button type="button" class="filter-tab" data-board="academic" aria-pressed="false">📚 Academic Failure</button>
+        <button type="button" class="filter-tab" data-board="job" aria-pressed="false">💼 Job Hunting</button>
+        <button type="button" class="filter-tab" data-board="social" aria-pressed="false">🌍 Social Integration</button>
+      </div>
+    </section>
+
+    <section class="filter-group" aria-labelledby="comment-filter-label">
+      <h2 class="filter-heading" id="comment-filter-label">Response preference</h2>
+      <div class="filter-tabs filter-tabs-compact" id="comment-mode-filters">
+        <button type="button" class="filter-tab active" data-comment-filter="all" aria-pressed="true">All responses</button>
+        <button type="button" class="filter-tab" data-comment-filter="encouragement" aria-pressed="false">Encouragement</button>
+        <button type="button" class="filter-tab" data-comment-filter="similar" aria-pressed="false">Similar Experience</button>
+        <button type="button" class="filter-tab" data-comment-filter="advice" aria-pressed="false">Gentle Advice</button>
+        <button type="button" class="filter-tab" data-comment-filter="none" aria-pressed="false">No Comments</button>
+      </div>
+    </section>
+
+    <section class="filter-group" aria-labelledby="tag-filter-label">
+      <div class="filter-heading-row">
+        <h2 class="filter-heading" id="tag-filter-label">Story tags</h2>
+        <div class="tag-heading-actions">
+          <div class="tag-language-switch" role="group" aria-label="Tag language / 标签语言">
+            <button type="button" class="active" data-tag-language="en" aria-pressed="true">EN</button>
+            <button type="button" data-tag-language="zh" aria-pressed="false" lang="zh-Hans">中文</button>
+          </div>
+          <button type="button" class="tag-toggle" id="tag-toggle" aria-expanded="false" aria-controls="tag-filters">Show all tags</button>
+        </div>
+      </div>
+      <div class="filter-tags" id="tag-filters">
+        <!-- Available tags render here -->
+      </div>
+    </section>
+
+    <div class="archive-search-row">
+      <div class="search-box">
+        <label class="sr-only" for="story-search">Search stories</label>
+        <input type="search" id="story-search" placeholder="Search titles, stories, or tags...">
+      </div>
+      <button type="button" class="btn btn-secondary" id="clear-filters" disabled>Clear all filters</button>
+    </div>
+    <p class="filter-summary" id="filter-summary" role="status" aria-live="polite"></p>
+  </div>
+
+  <div class="story-grid" id="story-grid">
+    <!-- Stories render here -->
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
+<!-- ==================== ADVICE HUB PAGE ==================== -->
+<section id="page-advice" class="page">
+  <div class="page-header">
+    <h1>Actionable Advice Hub</h1>
+    <p>Not generic motivation. Concrete, evidence-informed strategies for navigating specific failure experiences — organised by the same categories as our Story Archive.</p>
+  </div>
+
+  <div class="advice-grid" id="advice-grid">
+    <!-- Advice articles render here -->
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
+<!-- ==================== SUBMIT PAGE ==================== -->
+<section id="page-submit" class="page">
+  <div class="page-header">
+    <span class="prototype-label">Prototype preview</span>
+    <h1>Submit Your Failure Résumé</h1>
+    <p>This static demo does not transmit your story. For the roadshow only, submitted stories can be saved in this browser local demo storage.</p>
+  </div>
+
+  <div class="submit-container">
+    <div class="submit-info">
+      <span class="prototype-badge">Planned pilot workflow</span>
+      <h2>Submission Guidelines</h2>
+      <ul>
+        <li><strong>Age:</strong> Intended for university students and recent graduates aged 19–24</li>
+        <li><strong>Length:</strong> 150–200 counted units; each English word and each CJK character counts as one unit</li>
+        <li><strong>Language:</strong> Chinese, English, Japanese, Korean, or a mixture</li>
+        <li><strong>Privacy:</strong> Do not include names, contact information, student IDs, or details that could identify another person</li>
+        <li><strong>Content:</strong> Focus on your own experience, its impact, and what you are learning or still navigating</li>
+      </ul>
+      <p class="planned-note">In a future live pilot, submissions would enter an anonymous, moderated review process before publication, with clear user controls for requesting changes or removal.</p>
+    </div>
+
+    <aside class="safety-note" aria-labelledby="safety-note-title">
+      <h2 id="safety-note-title">Before you write</h2>
+      <p>This is a peer-support and educational project, not a clinical service.</p>
+      <p>Do not include names, contact information, student IDs, or details that could identify another person.</p>
+      <p><strong>Crisis support:</strong> A formal platform would provide verified, region-appropriate crisis resources. This prototype does not list unverified telephone numbers.</p>
+    </aside>
+
+    <form class="submit-form" id="submit-form" novalidate>
+      <div class="form-group">
+        <label for="story-title">Story title / 故事标题 *</label>
+        <input id="story-title" name="story-title" type="text" maxlength="100" placeholder="A short, anonymous title" required>
+      </div>
+
+      <div class="form-group">
+        <label for="story-board">Thematic Board *</label>
+        <select id="story-board" name="story-board" required>
+          <option value="">Select a board...</option>
+          <option value="academic">Academic Failure</option>
+          <option value="job">Job Hunting Failure</option>
+          <option value="social">Social Integration</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label-row">
+          <span class="form-label" id="story-tags-label">Tags (optional, up to 3) / 标签（可选，最多3个）</span>
+          <div class="tag-language-switch" role="group" aria-label="Tag language / 标签语言">
+            <button type="button" class="active" data-tag-language="en" aria-pressed="true">EN</button>
+            <button type="button" data-tag-language="zh" aria-pressed="false" lang="zh-Hans">中文</button>
+          </div>
+        </div>
+        <p class="form-help" id="story-tags-help">Choose a board to see relevant tags. Selected tags are saved only with this local demo story.</p>
+        <div class="tag-checkboxes" id="tag-checkboxes" aria-labelledby="story-tags-label" aria-describedby="story-tags-help story-tags-selection-status">
+          <!-- Populated by JavaScript based on board selection -->
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="story-text">Your Story (150–200 counted units) *</label>
+        <textarea id="story-text" name="story-text" rows="8" placeholder="Describe your experience without names or identifying details." aria-describedby="story-counts story-count-status form-error" required></textarea>
+        <div class="story-counts" id="story-counts" aria-live="polite">
+          <span>English words: <strong id="english-word-count">0</strong></span>
+          <span>CJK characters: <strong id="cjk-character-count">0</strong></span>
+          <span>Total counted units: <strong id="total-unit-count">0</strong></span>
+        </div>
+        <p class="story-count-status" id="story-count-status">Enter 150–200 counted units.</p>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+      </div>
+
+      <div class="form-group">
+        <label for="comment-mode">How would you like people to respond? *</label>
+        <select id="comment-mode" name="comment-mode" required>
+          <option value="">Select comment mode...</option>
+          <option value="none">No Comments — I just want my story witnessed</option>
+          <option value="encouragement">Encouragement — supportive, affirming messages</option>
+          <option value="similar">Similar Experience — share a parallel story</option>
+          <option value="advice">Gentle Advice — constructive, non-judgmental suggestions</option>
+        </select>
+      </div>
+
+      <div class="form-group checkbox-group">
+        <label>
+          <input type="checkbox" id="guidelines-accept" name="guidelines-accept" required>
+          I confirm that this prototype entry follows the privacy and content guidelines above.
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Add story to this demo / 添加到演示</button>
+    </form>
+
+    <div class="submit-success" id="submit-success" hidden tabindex="-1">
+      <span class="prototype-badge">Local prototype preview / 本地演示</span>
+      <h2>Story added to the demo</h2>
+      <p><strong>Your story was added only to this browser demo.</strong> It was not transmitted to a server and this immediate preview is not a moderation decision.</p>
+      <p id="submit-success-summary">You can now view the story, its selected tags, and Archive filtering. A live pilot would review and anonymise submissions before publication.</p>
+      <div class="submit-success-actions">
+        <button type="button" class="btn btn-primary" data-page="archive">View in Story Archive / 在归档中查看</button>
+        <button type="button" class="btn btn-secondary" id="reset-prototype-form">Add another story / 再添加一篇</button>
+        <button type="button" class="btn btn-ghost" id="reset-demo-stories">Reset submitted stories / 重置投稿演示</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
+<!-- ==================== ABOUT PAGE ==================== -->
+<section id="page-about" class="page">
+  <div class="page-header">
+    <h1>About Fail Forward Gallery</h1>
+    <p>Understanding the project, the problem, and the vision.</p>
+  </div>
+
+  <div class="about-content">
+    <div class="about-section">
+      <h2>The Problem</h2>
+      <p>China's intense meritocratic culture — exemplified by the gaokao, postgraduate entrance exams, and fiercely competitive job markets — has produced a generation of young people who equate their worth with their achievements. When they inevitably encounter failure, many suffer in silence, believing they are alone. A 2023 national survey found that <strong>29.3% of Chinese university students</strong> reported moderate to severe depressive symptoms, with academic pressure and employment anxiety as the top two stressors.</p>
+      <p>Social media platforms like Xiaohongshu have organically become spaces for failure confessions, but they are not designed for structured emotional support, privacy protection, or actionable guidance.</p>
+    </div>
+
+    <div class="about-section">
+      <h2>Our Approach</h2>
+      <p>Fail Forward Gallery intervenes at the intersection of <strong>mental health advocacy, digital storytelling, and inclusive community-building</strong>. We reframe failure not as a mark of personal deficiency but as a shared, generative human experience — one that, when witnessed collectively, builds resilience rather than shame.</p>
+    </div>
+
+    <div class="about-section">
+      <h2>Platform Features</h2>
+      <div class="about-features">
+        <div>
+          <h3>📖 Failure Story Archive</h3>
+          <p>Anonymous, moderated stories organised by thematic boards: Academic Failure, Job Hunting Failure, and Social Integration. Each story carries tags for granular filtering and a submitter-chosen comment mode.</p>
+        </div>
+        <div>
+          <h3>💡 Actionable Advice Hub</h3>
+          <p>Evidence-informed guidance for specific failure scenarios — from recovering after kaoyan rejection to navigating loneliness as an exchange student.</p>
+        </div>
+        <div>
+          <h3>🤝 Choice-Based Commenting</h3>
+          <p>Submitters choose: no comment, encouragement only, similar experience sharing, or gentle advice. Community support that respects individual boundaries.</p>
+        </div>
+        <div>
+          <h3>🛡️ Planned AI + Human Moderation</h3>
+          <p><span class="prototype-badge">Planned pilot workflow</span> The current demo is not connected to a moderation queue. A future pilot would combine automated pre-screening with trained human review and transparent user controls.</p>
+        </div>
+        <div>
+          <h3>🏛️ Pop-Up Exhibitions</h3>
+          <p>Physical gallery spaces on university campuses where failure résumés become tangible — printed story cards, interactive writing stations, and walls of encouragement.</p>
+        </div>
+        <div>
+          <h3>🌏 Cross-Cultural Reach</h3>
+          <p>Dedicated space for international and exchange student experiences, bridging rural-urban divides and cross-border mental health conversations.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="about-section">
+      <h2>Our Values</h2>
+      <div class="values-list">
+        <div class="value-card">
+          <h3>Inclusivity</h3>
+          <p>We amplify voices across the urban-rural divide, across university tiers (985 to vocational), across national borders, and across the diverse ways failure shapes young lives. No failure is too small, no background too different.</p>
+        </div>
+        <div class="value-card">
+          <h3>Resilience</h3>
+          <p>We believe resilience is not about bouncing back instantly or "staying positive." It is the slow, communal, compassionate work of learning to hold failure differently — as part of a story that is still being written, not as its final chapter.</p>
+        </div>
+        <div class="value-card">
+          <h3>Dignity</h3>
+          <p>Every story should be treated with respect, and submitters should control how their narrative is received. Future pilot moderation guidance is intended to be trauma-informed and designed around psychological safety.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="about-section">
+      <h2>Planned Pilot Scope</h2>
+      <p><strong>Duration:</strong> 6 months (July – December 2026)</p>
+      <p><strong>Budget:</strong> RMB 25,000</p>
+      <p><strong>Team:</strong> Undergraduate student project</p>
+      <p><strong>Target:</strong> 200+ stories, 5,000+ website visitors, 1–2 pop-up exhibitions</p>
+    </div>
+
+    <div class="about-section">
+      <h2>Contact & Follow</h2>
+      <p>WeChat Official Account: <em>coming soon</em></p>
+      <p>Xiaohongshu: <em>coming soon</em></p>
+      <p>Email: <em>coming soon</em></p>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+    <p>Serving inclusivity &amp; resilience among Asian youth &bull; 失败是向前的一步</p>
+  </footer>
+</section>
+
+<!-- ==================== MODAL ==================== -->
+<div class="modal-overlay" id="modal-overlay" aria-hidden="true">
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
+    <button type="button" class="modal-close" id="modal-close" aria-label="Close story dialog">&times;</button>
+    <div class="modal-content" id="modal-content">
+      <!-- Story detail renders here -->
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
