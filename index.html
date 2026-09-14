@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fail Forward Gallery — Asian Youth Failure Résumé Exhibition</title>
+<title>Fail Forward Gallery — 失败故事匿名分享平台</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -19,6 +19,10 @@
       <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
       <li><a href="#" data-page="about" class="nav-link">About</a></li>
     </ul>
+    <div class="site-language-switch" role="group" aria-label="界面语言 / Interface language">
+      <button type="button" class="active" data-site-language="zh" aria-pressed="true" lang="zh-CN">中文</button>
+      <button type="button" data-site-language="en" aria-pressed="false" lang="en">EN</button>
+    </div>
   </div>
 </nav>
 
@@ -142,10 +146,6 @@
       <div class="filter-heading-row">
         <h2 class="filter-heading" id="tag-filter-label">Story tags</h2>
         <div class="tag-heading-actions">
-          <div class="tag-language-switch" role="group" aria-label="Tag language / 标签语言">
-            <button type="button" class="active" data-tag-language="en" aria-pressed="true">EN</button>
-            <button type="button" data-tag-language="zh" aria-pressed="false" lang="zh-Hans">中文</button>
-          </div>
           <button type="button" class="tag-toggle" id="tag-toggle" aria-expanded="false" aria-controls="tag-filters">Show all tags</button>
         </div>
       </div>
@@ -237,10 +237,6 @@
       <div class="form-group">
         <div class="form-label-row">
           <span class="form-label" id="story-tags-label">Tags (optional, up to 3) / 标签（可选，最多3个）</span>
-          <div class="tag-language-switch" role="group" aria-label="Tag language / 标签语言">
-            <button type="button" class="active" data-tag-language="en" aria-pressed="true">EN</button>
-            <button type="button" data-tag-language="zh" aria-pressed="false" lang="zh-Hans">中文</button>
-          </div>
         </div>
         <p class="form-help" id="story-tags-help">Choose a board to see relevant tags. Selected tags are saved only with this local demo story.</p>
         <div class="tag-checkboxes" id="tag-checkboxes" aria-labelledby="story-tags-label" aria-describedby="story-tags-help story-tags-selection-status">
@@ -309,13 +305,13 @@
   <div class="about-content">
     <div class="about-section">
       <h2>The Problem</h2>
-      <p>China's intense meritocratic culture — exemplified by the gaokao, postgraduate entrance exams, and fiercely competitive job markets — has produced a generation of young people who equate their worth with their achievements. When they inevitably encounter failure, many suffer in silence, believing they are alone. A 2023 national survey found that <strong>29.3% of Chinese university students</strong> reported moderate to severe depressive symptoms, with academic pressure and employment anxiety as the top two stressors.</p>
-      <p>Social media platforms like Xiaohongshu have organically become spaces for failure confessions, but they are not designed for structured emotional support, privacy protection, or actionable guidance.</p>
+      <p>Academic pressure, employment uncertainty, financial stress, and social comparison can make setbacks feel isolating. Many young people hesitate to talk about failure because they fear judgment or believe that everyone else is progressing more smoothly.</p>
+      <p>General social platforms offer places to speak, but they are not designed around anonymous ownership, response boundaries, structured moderation, or careful follow-up.</p>
     </div>
 
     <div class="about-section">
       <h2>Our Approach</h2>
-      <p>Fail Forward Gallery intervenes at the intersection of <strong>mental health advocacy, digital storytelling, and inclusive community-building</strong>. We reframe failure not as a mark of personal deficiency but as a shared, generative human experience — one that, when witnessed collectively, builds resilience rather than shame.</p>
+      <p>Fail Forward Gallery brings together mental health advocacy, digital storytelling, and inclusive community-building. We treat failure as a shared human experience rather than evidence of personal deficiency, while avoiding promises of diagnosis, treatment, or guaranteed recovery.</p>
     </div>
 
     <div class="about-section">
@@ -398,6 +394,7 @@
   </div>
 </div>
 
+<script src="i18n.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

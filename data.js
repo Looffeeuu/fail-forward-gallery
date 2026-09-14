@@ -4,6 +4,7 @@ const storyTagCatalog = [
   { value: "DropoutDecision", labelEn: "#DropoutDecision", labelZh: "#退学决定", boards: ["academic"] },
   { value: "CareerPivot", labelEn: "#CareerPivot", labelZh: "#职业转向", boards: ["academic"] },
   { value: "MajorDissatisfaction", labelEn: "#MajorDissatisfaction", labelZh: "#专业不适", boards: ["academic"] },
+  { value: "ExamFailure", labelEn: "#ExamFailure", labelZh: "#考试失利", boards: ["academic"] },
   { value: "Qiuzhao0Offer", labelEn: "#Qiuzhao0Offer", labelZh: "#秋招零Offer", boards: ["job"] },
   { value: "InterviewAnxiety", labelEn: "#InterviewAnxiety", labelZh: "#面试焦虑", boards: ["job"] },
   { value: "LackOfInternship", labelEn: "#LackOfInternship", labelZh: "#缺少实习", boards: ["job"] },
@@ -88,6 +89,7 @@ const stories = [
         visibility: "public",
         reviewStatus: "approved",
         publishedLabel: "Published 30 days after the original story",
+        publishedLabelZh: "发布于原故事的第30天",
         source: "sample"
       }
     ],
@@ -193,71 +195,116 @@ const adviceArticles = [
   {
     id: "advice-1",
     title: "What to Do When You Miss the Kaoyan Cutoff",
+    titleZh: "考研未过线后，可以先做什么",
     tags: ["KaoyanRejection", "ExamFailure"],
     board: "academic",
     summary: "The postgraduate entrance exam is one of the most competitive in the world. Missing the cutoff does not define your intelligence or your future—here are five concrete steps to move forward.",
+    summaryZh: "考研结果不能定义你的能力或未来。下面是五个可以逐步考虑的行动方向，你也可以按照自己的节奏选择是否尝试。",
     steps: [
       "Give yourself a structured grieving period (1-2 weeks). Set a date on your calendar when you will start planning next steps. This prevents indefinite rumination.",
       "Audit your result strategically. Were you close to the cutoff? Consider retaking with a more focused study plan. Was the gap large? Consider whether this path truly aligns with your strengths.",
       "Explore parallel pathways: many industries value work experience over postgraduate degrees. Research companies in your field that offer graduate trainee programmes.",
       "Reach out to 2-3 people who took alternative paths after kaoyan—alumni networks and LinkedIn are good sources. Hearing real trajectories reduces catastrophising.",
       "Remember: the exam measures exam-taking ability at one moment in time. It does not measure creativity, emotional intelligence, resilience, or your capacity to grow."
+    ],
+    stepsZh: [
+      "允许自己经历一段有边界的难过期，例如先给自己一到两周，再约定一个开始整理下一步的日期。重点不是催促自己振作，而是避免长期陷在反复自责中。",
+      "客观复盘分数与准备过程。如果距离分数线很近，可以评估是否愿意以更聚焦的计划再尝试；如果差距较大，也可以重新考虑这条路径是否符合自己的兴趣、资源与优势。",
+      "了解平行路径。许多行业更看重实际经历和能力，可以关注校招培训项目、实习、技能作品集或其他继续学习方式。",
+      "联系两三位考研后选择不同道路的人，例如可信任的学长学姐或校友。看到真实而多样的成长路径，有助于减轻‘只有这一条路’的压力。",
+      "记住：一次考试只测量某个时点的应试表现，无法完整衡量创造力、人际能力、韧性和持续成长的能力。"
     ]
   },
   {
     id: "advice-2",
     title: "Rebuilding Confidence After Qiuzhao Rejection",
+    titleZh: "秋招受挫后，如何慢慢找回信心",
     tags: ["Qiuzhao0Offer", "InterviewAnxiety"],
     board: "job",
     summary: "Autumn recruitment rejection is often a structural problem, not a personal one. Here is how to protect your mental health while continuing your search.",
+    summaryZh: "秋招结果同时受到岗位数量、筛选机制和市场环境影响，并不等同于个人价值。下面是一些兼顾求职与身心状态的做法。",
     steps: [
       "Decouple your self-worth from recruitment outcomes. Chinese graduates face one of the highest applicant-to-opening ratios in history. Rejection is the statistical norm, not a personal verdict.",
       "Diversify your job search channels. Beyond Zhaopin and 51job, try: industry-specific WeChat groups, alumni referrals, small and medium enterprises (which often have less rigid screening), and spring recruitment (chunzhao), which has less competition.",
       "Practise interview skills with peers. Record yourself answering common questions. You will notice filler words, pacing issues, and areas to strengthen—objective self-observation beats anxious self-criticism.",
       "Set a daily application cap (e.g., 5 quality applications) rather than mass-applying. Tailored applications yield higher response rates and reduce burnout.",
       "Build a 'rejection resilience' ritual: after each rejection, do one small thing that reminds you of your competence—review past praise, work on a personal project, exercise."
+    ],
+    stepsZh: [
+      "尝试把自我价值与招聘结果分开。竞争激烈时，被拒绝往往是统计上的常态，而不是对一个人的最终评价。",
+      "分散求职渠道。除了大型招聘平台，也可以关注行业社群、校友内推、中小企业和竞争相对较低的春招机会。",
+      "和同伴进行模拟面试并录音或录像，观察语速、口头禅和回答结构。用可观察的问题代替笼统的自我否定。",
+      "为每天的申请数量设定上限，例如完成五份有针对性的申请，而不是无限投递，以减少耗竭。",
+      "每次收到拒绝后，安排一件能够提醒自己仍有能力的小事，例如回顾曾获得的积极反馈、推进个人项目或进行适度运动。"
     ]
   },
   {
     id: "advice-3",
     title: "Managing Loneliness as an Exchange Student",
+    titleZh: "交换学习期间，如何面对孤独与文化适应",
     tags: ["LonelinessAbroad", "LanguageBarrier", "CultureShock"],
     board: "social",
     summary: "Loneliness abroad is not a personal failing—it is a predictable phase of cultural adaptation. Here are strategies that work.",
+    summaryZh: "在海外感到孤独不代表你不擅长社交，它可能是文化适应过程的一部分。以下做法可以作为参考。",
     steps: [
       "Understand the W-curve of cultural adjustment: initial excitement, then crash, then gradual adaptation, another dip, and finally integration. Knowing this is normal reduces self-blame.",
       "Join one structured activity where language is secondary: sports clubs, hiking groups, maker spaces, volunteering. Shared activity creates natural interaction without the pressure of small talk.",
       "Use your university's international student services. Many offer free conversation partner programmes, cultural orientation sessions, and counselling specifically for international students.",
       "Create a balanced communication diet: schedule regular but not constant contact with home (e.g., one video call per week, not daily), leaving space to build local connections.",
       "Give yourself permission to be a beginner. You are learning a new culture the way a child learns—through observation, mistakes, and gradual confidence. The silent phase is temporary."
+    ],
+    stepsZh: [
+      "了解文化适应可能出现反复：兴奋、失落、逐渐适应、再次波动，再到形成新的平衡。知道情绪变化并不少见，可以减少自责。",
+      "参加一种语言压力较低的结构化活动，例如运动、徒步、手工活动或志愿服务。共同完成事情比单纯寒暄更容易建立连接。",
+      "了解学校的国际学生支持服务，例如语言伙伴、文化适应活动和面向国际学生的咨询资源，并确认服务是否适合自己。",
+      "在与家乡保持联系和建立当地生活之间寻找平衡，例如安排固定的视频通话，而不是让线上联系占满全部空闲时间。",
+      "允许自己暂时是新手。理解新的文化需要观察、试错和时间，沉默或不确定的阶段不等于失败。"
     ]
   },
   {
     id: "advice-4",
     title: "Navigating Campus as a First-Generation Student",
+    titleZh: "第一代大学生如何逐步熟悉校园规则",
     tags: ["FirstGenPressure", "FinancialStruggles", "CityShock"],
     board: "social",
     summary: "Being the first in your family to attend university is an extraordinary achievement—and it comes with unique challenges. Here is how to find your footing.",
+    summaryZh: "成为家庭中的第一代大学生是一项重要经历，也常伴随信息、资源和文化适应上的独特困难。以下建议用于帮助你逐步找到自己的位置。",
     steps: [
       "Identify 'cultural capital' gaps without shame. Not knowing what an internship is, how to network, or what 'gap year' means is not a personal deficiency—it is information your environment never provided. Treat these as skills to learn, not evidence of inadequacy.",
       "Find a mentor from a similar background. Look for professors, teaching assistants, or senior students who were also first-gen. They understand your context in ways others cannot.",
       "Utilise free university resources aggressively: career counselling, mental health services, academic skills workshops, language labs. These exist precisely to level the playing field.",
       "Build a 'translation' practice between your two worlds. When you go home, share what you are learning in accessible language. When at university, allow yourself to be curious about things you do not know without apology.",
       "Remember: your background gives you perspectives your classmates lack. Resilience, resourcefulness, and the ability to navigate uncertainty are assets employers value—you have been developing them your whole life."
+    ],
+    stepsZh: [
+      "不带羞耻地识别信息差。不熟悉实习、社交网络或间隔年等概念，并不是个人缺陷，而是过去环境没有提供相应信息。",
+      "寻找背景相近的导师、老师、助教或高年级学生。他们可能更理解你正在面对的处境。",
+      "主动了解学校提供的免费资源，例如就业咨询、心理支持、学习技能工作坊和语言中心，并核实服务的申请方式。",
+      "练习在家庭与校园之间进行‘翻译’：回家时用家人熟悉的方式分享经历；在学校遇到陌生规则时，允许自己提问而不必为不知道而道歉。",
+      "你的成长背景也带来了独特视角。应对不确定性、解决现实问题和利用有限资源的能力，都是可以继续发展的优势。"
     ]
   },
   {
     id: "advice-5",
     title: "Dealing with Degree Discrimination in Job Applications",
+    titleZh: "求职中遇到学历筛选时，可以采取哪些策略",
     tags: ["DegreeDiscrimination", "CVStruggles"],
     board: "job",
     summary: "When recruiters filter by university prestige, your CV may never reach a human reader. Here are strategies to work around structural bias.",
+    summaryZh: "当招聘流程过度依赖学校背景筛选时，个人经历可能没有机会被完整看见。下面是一些应对结构性偏见的现实策略。",
     steps: [
       "Build a skills-based portfolio that speaks louder than your diploma: GitHub repositories for tech roles, case study write-ups for business roles, a professional blog demonstrating industry knowledge.",
       "Target companies known for skills-based hiring. Many tech firms, startups, and foreign-invested enterprises evaluate candidates through practical assessments rather than credential screening.",
       "Leverage the back door: employee referrals bypass HR filters. Use alumni networks, industry events, and LinkedIn to connect with people inside your target companies before applying.",
       "Pursue industry certifications (PMP, CPA, CFA Level 1, Google Career Certificates) that provide standardised, third-party validation of your competence independent of your university.",
       "Reframe your narrative: in cover letters and interviews, lead with what you have done and built, not where you studied. Let your work speak first."
+    ],
+    stepsZh: [
+      "建立以能力为核心的作品集，例如技术岗位的代码项目、商业岗位的案例分析，或能够体现专业思考的公开文章。",
+      "关注更重视技能评估的公司和岗位。部分科技企业、初创公司和外资企业会通过实际任务而不是单纯学历进行筛选。",
+      "通过校友网络、行业活动和职业社交平台联系目标公司的从业者。合适的内部推荐有时可以减少简历在初筛阶段被忽略的概率。",
+      "根据目标行业评估是否需要具有可信度的职业资格或技能认证，不要为了堆砌证书而投入超出自身承受范围的成本。",
+      "在求职信和面试中优先说明自己做过什么、解决过什么问题，再介绍学校背景，让具体成果先被看见。"
     ]
   }
 ];
