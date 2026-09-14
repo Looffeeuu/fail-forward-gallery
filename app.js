@@ -68,6 +68,7 @@ function initApp() {
   loadDemoStories();
   initNavigation();
   initSiteLanguage();
+  initAuthUI();
   initArchive();
   initSubmitForm();
   initModal();
@@ -123,6 +124,7 @@ function setSiteLanguage(nextLanguage) {
   }
 
   applySiteLanguage();
+  syncAuthUiLanguage();
 }
 
 function syncSiteLanguageControls() {

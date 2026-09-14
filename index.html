@@ -18,6 +18,7 @@
       <li><a href="#" data-page="advice" class="nav-link">Advice Hub</a></li>
       <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
       <li><a href="#" data-page="about" class="nav-link">About</a></li>
+      <li><a href="#" data-page="account" class="nav-link nav-account-link">Sign in</a></li>
     </ul>
     <div class="site-language-switch" role="group" aria-label="界面语言 / Interface language">
       <button type="button" class="active" data-site-language="zh" aria-pressed="true" lang="zh-CN">中文</button>
@@ -384,6 +385,90 @@
   </footer>
 </section>
 
+<!-- ==================== ACCOUNT PAGE ==================== -->
+<section id="page-account" class="page">
+  <div class="page-header account-header">
+    <span class="version-badge">V0.2 · Authentication foundation</span>
+    <h1>Your account stays private. Your stories stay anonymous.</h1>
+    <p>Sign in is used only to recognise your own stories, follow-ups, moderation status, and appeals.</p>
+  </div>
+
+  <div class="section account-section">
+    <div class="account-grid">
+      <article class="account-card auth-card" aria-labelledby="auth-card-title">
+        <div class="account-card-heading">
+          <span class="account-eyebrow">Private account</span>
+          <h2 id="auth-card-title">Sign in with email</h2>
+          <p>We plan to send a one-time verification code. Your email will never appear with a public story or response.</p>
+        </div>
+
+        <form id="auth-form" class="auth-form" novalidate>
+          <div class="form-group">
+            <label for="auth-email">Email address</label>
+            <input id="auth-email" name="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="auth-privacy-note auth-status" required>
+          </div>
+          <button type="submit" class="btn btn-primary" id="auth-request-code">Continue with email</button>
+
+          <div id="auth-code-step" class="auth-code-step" hidden>
+            <div class="form-group">
+              <label for="auth-code">Verification code</label>
+              <input id="auth-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Enter the code">
+            </div>
+            <button type="button" class="btn btn-primary" id="auth-verify-code">Verify and sign in</button>
+          </div>
+        </form>
+
+        <p id="auth-status" class="auth-status" role="status" aria-live="polite" data-no-translate></p>
+        <p id="auth-privacy-note" class="auth-privacy-note">Authentication service is not connected yet. This form currently sends and stores nothing.</p>
+
+        <div id="authenticated-summary" class="authenticated-summary" hidden>
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>Signed in privately</strong>
+            <p>Your public posts and responses still display an anonymous author label.</p>
+          </div>
+          <button type="button" class="btn btn-ghost" id="auth-sign-out">Sign out</button>
+        </div>
+      </article>
+
+      <aside class="account-card anonymity-card" aria-labelledby="anonymity-title">
+        <span class="account-eyebrow">Public anonymity</span>
+        <h2 id="anonymity-title">Identity and content remain separated</h2>
+        <ul class="privacy-list">
+          <li><span aria-hidden="true">01</span><div><strong>People see an anonymous author</strong><p>No email, account ID, or profile is displayed with your story.</p></div></li>
+          <li><span aria-hidden="true">02</span><div><strong>You can find your work again</strong><p>Your private account links you to your stories, responses, and follow-ups.</p></div></li>
+          <li><span aria-hidden="true">03</span><div><strong>Moderation remains accountable</strong><p>Review decisions, reasons, appeals, and withdrawals are recorded without exposing you publicly.</p></div></li>
+        </ul>
+      </aside>
+    </div>
+
+    <section class="my-stories-card" aria-labelledby="my-stories-title">
+      <div>
+        <span class="account-eyebrow">Private workspace</span>
+        <h2 id="my-stories-title">My stories</h2>
+      </div>
+      <div class="locked-empty-state" id="my-stories-locked">
+        <span class="lock-mark" aria-hidden="true">◇</span>
+        <div>
+          <h3>Sign in to manage your anonymous contributions</h3>
+          <p>Published stories, pending reviews, follow-ups, appeals, and withdrawal controls will appear here.</p>
+        </div>
+      </div>
+      <div class="locked-empty-state" id="my-stories-empty" hidden>
+        <span class="lock-mark" aria-hidden="true">✓</span>
+        <div>
+          <h3>No stories linked to this account yet</h3>
+          <p>When the content API is connected, your own submissions and review states will appear here without exposing your identity publicly.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
 <!-- ==================== MODAL ==================== -->
 <div class="modal-overlay" id="modal-overlay" aria-hidden="true">
   <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
@@ -396,6 +481,7 @@
 
 <script src="i18n.js"></script>
 <script src="data.js"></script>
+<script src="auth.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

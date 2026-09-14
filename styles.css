@@ -378,6 +378,160 @@ html[lang="zh-CN"] h4 {
   .modal { padding: 1.5rem; margin: 0.5rem; }
 }
 
+/* --- V0.2 ACCOUNT & ANONYMOUS IDENTITY FOUNDATION --- */
+.nav-account-link {
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary-dark) !important;
+}
+
+.nav-account-link:hover,
+.nav-account-link.active {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+  color: #fff !important;
+}
+
+.account-header { padding-bottom: 3.5rem; }
+.account-header p { max-width: 720px; margin-inline: auto; }
+
+.version-badge,
+.account-eyebrow {
+  display: inline-block;
+  color: var(--color-primary-dark);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.version-badge {
+  margin-bottom: 1rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid rgba(61, 90, 79, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.account-section { margin-top: -1.75rem; }
+.account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.account-card,
+.my-stories-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.account-card { padding: clamp(1.35rem, 3vw, 2.2rem); }
+.account-card-heading { margin-bottom: 1.35rem; }
+.account-card h2,
+.my-stories-card h2 { margin: 0.35rem 0 0.55rem; }
+.account-card p { color: var(--color-text-muted); }
+
+.auth-form {
+  padding: 1.1rem;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+}
+
+.auth-form .form-group { margin-bottom: 0.9rem; }
+.auth-form .btn { width: 100%; }
+.auth-code-step {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.auth-status {
+  min-height: 1.7em;
+  margin-top: 1rem;
+  color: var(--color-primary-dark) !important;
+  font-weight: 650;
+}
+
+.auth-privacy-note {
+  margin-top: 0.55rem;
+  padding-left: 0.8rem;
+  border-left: 3px solid var(--color-accent);
+  font-size: 0.9rem;
+}
+
+.authenticated-summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid rgba(61, 90, 79, 0.25);
+  border-radius: var(--radius);
+  background: #eef4f1;
+}
+.authenticated-summary[hidden] { display: none; }
+.status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--color-primary-dark);
+}
+
+.privacy-list { display: grid; gap: 1rem; margin-top: 1.35rem; list-style: none; }
+.privacy-list li { display: grid; grid-template-columns: 2.1rem 1fr; gap: 0.75rem; }
+.privacy-list li > span {
+  display: grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  place-items: center;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  color: #765a24;
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+}
+.privacy-list strong { color: var(--color-text); }
+.privacy-list p { margin-top: 0.15rem; font-size: 0.9rem; }
+
+.my-stories-card { margin-top: 1.5rem; padding: clamp(1.35rem, 3vw, 2rem); }
+.locked-empty-state {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1.1rem;
+  padding: 1.15rem;
+  border: 1px dashed #b8aa97;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+}
+.locked-empty-state p { color: var(--color-text-muted); }
+.lock-mark {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-primary-dark);
+  color: #fff;
+}
+
+@media (max-width: 860px) {
+  .account-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .account-section { margin-top: -1rem; }
+  .account-card,
+  .my-stories-card { padding: 1.15rem; }
+  .authenticated-summary { grid-template-columns: auto 1fr; }
+  .authenticated-summary .btn { grid-column: 1 / -1; width: 100%; }
+  .locked-empty-state { align-items: flex-start; }
+}
+
 /* --- RELIABILITY & ACCESSIBILITY ENHANCEMENTS --- */
 [hidden] { display: none !important; }
 
