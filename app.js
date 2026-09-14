@@ -68,6 +68,7 @@ function initApp() {
   loadDemoStories();
   initNavigation();
   initSiteLanguage();
+  initAuthService();
   initAuthUI();
   initArchive();
   initSubmitForm();

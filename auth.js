@@ -185,7 +185,19 @@ const authMessages = Object.freeze({
   sent: { zh: '验证码已发送，请检查邮箱。', en: 'Code sent. Check your email.' },
   verifying: { zh: '正在验证……', en: 'Verifying…' },
   authenticated: { zh: '已安全登录。', en: 'Signed in securely.' },
-  error: { zh: '暂时无法登录，请稍后重试。', en: 'Sign-in is unavailable. Try again later.' }
+  error: { zh: '暂时无法登录，请稍后重试。', en: 'Sign-in is unavailable. Try again later.' },
+  'network-error': {
+    zh: '暂时无法连接登录服务，请检查网络后重试。',
+    en: 'The sign-in service could not be reached. Check your connection and try again.'
+  },
+  'rate-limited': {
+    zh: '请求过于频繁，请稍后再试。',
+    en: 'Too many attempts. Wait a moment and try again.'
+  },
+  'code-expired': {
+    zh: '验证码已过期，请重新获取。',
+    en: 'The verification code has expired. Request a new one.'
+  }
 });
 
 function getAuthUiLanguage() {
@@ -236,6 +248,9 @@ function renderAuthUi(authState) {
   if (authState.status === window.FFG_AUTH.STATUS.CODE_SENT) setAuthMessage('sent');
   if (authState.status === window.FFG_AUTH.STATUS.VERIFYING) setAuthMessage('verifying');
   if (signedIn) setAuthMessage('authenticated');
+  if (authState.status === window.FFG_AUTH.STATUS.ERROR) {
+    setAuthMessage(authState.errorCode || 'error');
+  }
 }
 
 function initAuthUI() {

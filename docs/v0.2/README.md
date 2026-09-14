@@ -6,6 +6,9 @@ V0.2 开始把静态原型迁移为可连接正式服务的产品。第一阶段
 
 - 新增邮箱登录和验证码界面，未接入服务时明确说明不会发送或保存信息。
 - 新增 `auth.js`，定义可替换的认证适配器、会话状态和权限判断。
+- 新增 `auth-http-adapter.js`，实现同源 Cookie 会话、请求超时、CSRF 请求头和安全错误映射。
+- 新增不包含密钥的 `runtime-config.js`；只有部署环境明确启用时才连接认证 API。
+- 新增 OpenAPI 契约，后端可以按同一接口独立实现。
 - 将私密账户身份与公开匿名身份分开。
 - 新增“我的故事”工作区入口，预留投稿、审核、Follow-up、申诉和撤回状态。
 - 保持纯 HTML、CSS 和原生 JavaScript；暂不绑定具体云厂商。
@@ -20,4 +23,4 @@ V0.2 开始把静态原型迁移为可连接正式服务的产品。第一阶段
 
 ## 当前限制
 
-`auth.js` 默认处于 `unconfigured` 状态。点击登录按钮只会得到明确提示，不会发起网络请求。正式适配器必须实现 `restoreSession`、`requestEmailCode`、`verifyEmailCode` 和 `signOut` 四个方法。
+`runtime-config.js` 中的 `auth.enabled` 默认为 `false`，因此 `auth.js` 保持 `unconfigured` 状态。点击登录按钮只会得到明确提示，不会发起网络请求。正式部署应由环境配置启用 HTTP 适配器，且必须由后端实现 [认证 API 契约](./auth-api.yaml)。
