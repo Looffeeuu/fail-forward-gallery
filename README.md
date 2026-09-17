@@ -87,8 +87,6 @@ These findings continue to shape tag design, discovery mechanisms, interface ref
 
 The current product includes a Chinese-first home experience, a filterable anonymous archive, story details and follow-ups, a card-based Advice Hub, a guided submission flow, private “My Stories” ownership, and an authorised human-review queue.
 
-Screenshots will be added only after a privacy check so that test phone numbers, private submissions, and interview material are not published.
-
 ## Design Principles
 
 ### Anonymous in public, accountable in private
