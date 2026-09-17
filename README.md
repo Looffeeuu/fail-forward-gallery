@@ -8,6 +8,8 @@
 
 **Project Lead & Presenter:** Shuyue Quan / 全书阅
 
+[**Open the live browser experience**](https://looffeeuu.github.io/fail-forward-gallery/)
+
 Developed through a five-country international team during NUS AUS 2026, with English used as the primary language for project discussion, coordination, and presentation.
 
 University students are constantly exposed to stories of success, while failure is often hidden. Fail Forward Gallery creates a safer space for students to share setbacks, learn from others, and access practical support.
