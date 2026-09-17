@@ -12,7 +12,7 @@ Developed through a five-country international team during NUS AUS 2026, with En
 
 University students are constantly exposed to stories of success, while failure is often hidden. Fail Forward Gallery creates a safer space for students to share setbacks, learn from others, and access practical support.
 
-> **Current status:** active six-month implementation following the AUS-funded concept stage. The repository contains a working bilingual product, a local account and moderation foundation, and the documentation that guides the next production stages.
+> **Current status:** active six-month implementation following the AUS-funded concept stage. The public main branch contains the working bilingual browser experience; the account, ownership, and human-moderation foundation is implemented and tested locally as V0.2 work in progress.
 
 ## About
 
@@ -43,15 +43,15 @@ Fail Forward Gallery was created to challenge that imbalance. Instead of treatin
 | Advice Hub | Open card-based, context-specific guidance linked to common student setbacks | Working |
 | Follow-up System | Original anonymous authors can add an update without being pressured to present a positive outcome | Working prototype |
 | Bilingual Experience | Chinese-first interface with an English option | Working |
-| Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | Local V0.2 service |
-| Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | Local V0.2 service |
+| Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | V0.2 work in progress; not yet on main |
+| Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | V0.2 work in progress; not yet on main |
 | AI-assisted Safety Screening | Risk classification before human review | Planned; no production AI service connected |
 | Ranking & Discovery | View-, response-, and editor-informed discovery with anti-abuse safeguards | Planned |
 | Pop-up Exhibition | Physical story gallery and facilitated reflection activities | Planned pilot component |
 
 ### A deliberately honest product boundary
 
-The public-facing experience and local V0.2 service are real working software, but this repository is **not yet a production mental-health platform**. Real SMS delivery, production cloud storage, AI safety screening, review-notification email, regional crisis-resource operations, and shared public deployment still require implementation and operational review.
+The public browser experience and local V0.2 service are real working software, but the project is **not yet a production mental-health platform**. Real SMS delivery, production cloud storage, AI safety screening, review-notification email, regional crisis-resource operations, and shared public deployment still require implementation and operational review.
 
 ## My Role
 
@@ -85,7 +85,7 @@ These findings continue to shape tag design, discovery mechanisms, interface ref
 
 The current product includes a Chinese-first home experience, a filterable anonymous archive, story details and follow-ups, a card-based Advice Hub, a guided submission flow, private “My Stories” ownership, and an authorised human-review queue.
 
-> Product screenshots are being captured from the current working build and will be added here without publishing test phone numbers, private submissions, or interview material.
+Screenshots will be added only after a privacy check so that test phone numbers, private submissions, and interview material are not published.
 
 ## Design Principles
 
@@ -111,7 +111,7 @@ The emotional experience of failure can cross borders, but its causes and conseq
 
 ## Current Status
 
-The project is in active V0.2 implementation.
+The project is in active V0.2 implementation. The public <code>main</code> branch currently contains the accepted V0.1 browser experience. The V0.2 account and moderation layer is implemented and tested in the current local development branch and will be published after acceptance and a history-safe release.
 
 ### Available in the browser experience
 
@@ -139,16 +139,16 @@ The project is in active V0.2 implementation.
 5. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
 6. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
 
-Detailed product and architecture decisions are documented in [V0.1](./docs/v0.1/) and [V0.2](./docs/v0.2/).
+The accepted product and architecture foundation is documented in [V0.1](./docs/v0.1/). V0.2 documentation will be published with the corresponding service code.
 
 ## Tech Stack
 
 The stack is intentionally small so the team can inspect and improve the full product:
 
 - **Frontend:** semantic HTML, CSS, and vanilla JavaScript
-- **Local service:** Node.js
-- **Development data:** SQLite
-- **Product structure:** bilingual interface, shared tag model, modular authentication and moderation adapters
+- **Public main branch:** static HTML, CSS, and vanilla JavaScript
+- **V0.2 development:** Node.js and SQLite
+- **Product structure:** bilingual interface and a shared story/tag model; modular authentication and moderation adapters are in V0.2 development
 - **Testing:** Node.js syntax checks and built-in test runner
 
 No React, Vue, frontend build tool, or third-party UI framework is required.
@@ -156,28 +156,13 @@ No React, Vue, frontend build tool, or third-party UI framework is required.
 <details>
 <summary><strong>Run the current build locally</strong></summary>
 
-Node.js 24 or later is required for the complete V0.2 flow.
-
 ~~~bash
-npm start
+python3 -m http.server 4173
 ~~~
 
 Open <code>http://127.0.0.1:4173</code>.
 
-For local moderation testing only, start the service with a non-personal development reviewer number:
-
-~~~bash
-FFG_DEV_MODERATOR_PHONE=13900139000 npm start
-~~~
-
-Development verification codes appear only in the server terminal. They are not sent as real SMS messages and must never be used as evidence of a production messaging system.
-
-Run the automated checks with:
-
-~~~bash
-npm run check
-npm test
-~~~
+This runs the accepted static browser experience on the public <code>main</code> branch. V0.2 Node.js service instructions will be published together with the accepted V0.2 source and tests. Development verification codes are terminal-only simulations; they are not real SMS messages.
 
 </details>
 
