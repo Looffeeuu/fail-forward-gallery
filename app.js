@@ -53,6 +53,30 @@ const appState = {
   adviceRendered: false
 };
 
+const myStoriesState = {
+  initialised: false,
+  loading: false,
+  stories: [],
+  errorCode: null,
+  requestVersion: 0
+};
+
+const publicStoriesState = {
+  loading: false,
+  requestVersion: 0
+};
+
+const moderationState = {
+  initialised: false,
+  loading: false,
+  loaded: false,
+  stories: [],
+  errorCode: null,
+  message: '',
+  actionStoryId: null,
+  requestVersion: 0
+};
+
 const followUpState = {
   phase: 'idle',
   pendingFollowUp: null,
@@ -68,11 +92,18 @@ function initApp() {
   loadDemoStories();
   initNavigation();
   initSiteLanguage();
+  initAuthService();
+  initAuthUI();
+  initMyStories();
   initArchive();
+  initPublicStories();
+  initModeration();
   initSubmitForm();
   initModal();
   showPage('home');
   applySiteLanguage();
+  syncAuthUiLanguage();
+  syncSubmissionModeUI();
 }
 
 function loadPreferredLanguage() {
@@ -116,6 +147,9 @@ function setSiteLanguage(nextLanguage) {
   updateStoryCount();
   appState.adviceRendered = false;
   renderAdvice();
+  renderMyStories();
+  moderationState.message = '';
+  renderModeration();
 
   if (document.getElementById('modal-overlay')?.classList.contains('active')) {
     const story = findStoryById(appState.activeStoryId);
@@ -123,6 +157,8 @@ function setSiteLanguage(nextLanguage) {
   }
 
   applySiteLanguage();
+  syncAuthUiLanguage();
+  syncSubmissionModeUI();
 }
 
 function syncSiteLanguageControls() {
@@ -249,6 +285,66 @@ function loadDemoStories() {
   }
 }
 
+function normalisePublishedStory(story) {
+  if (!story || typeof story !== 'object') return null;
+  if (!String(story.id || '').trim()) return null;
+  if (!['academic', 'job', 'social'].includes(story.board)) return null;
+  if (!['none', 'encouragement', 'similar', 'advice'].includes(story.responsePreference)) return null;
+
+  return {
+    id: String(story.id),
+    title: String(story.title || '').slice(0, 100),
+    board: story.board,
+    tags: Array.isArray(story.tags) ? [...new Set(story.tags.map(String))].slice(0, 3) : [],
+    commentMode: story.responsePreference,
+    commentModeLabel: formatCommentType(story.responsePreference),
+    text: String(story.content || ''),
+    attribution: 'Anonymous member / 匿名成员',
+    comments: [],
+    followUps: [],
+    createdAt: story.publishedAt || '',
+    source: 'server-published'
+  };
+}
+
+function replacePublishedStories(publishedStories) {
+  for (let index = stories.length - 1; index >= 0; index -= 1) {
+    if (stories[index].source === 'server-published') stories.splice(index, 1);
+  }
+
+  const safeStories = publishedStories.map(normalisePublishedStory).filter(Boolean);
+  stories.unshift(...safeStories);
+
+  const availableTags = new Set(getAvailableTags(filterState.board));
+  filterState.tags = new Set([...filterState.tags].filter((tag) => availableTags.has(tag)));
+  renderArchive();
+}
+
+function initPublicStories() {
+  if (!window.FFG_CONTENT_API?.enabled) return;
+  loadPublishedStories();
+}
+
+async function loadPublishedStories() {
+  if (!window.FFG_CONTENT_API?.enabled || publicStoriesState.loading) return;
+
+  const requestVersion = publicStoriesState.requestVersion + 1;
+  publicStoriesState.requestVersion = requestVersion;
+  publicStoriesState.loading = true;
+  try {
+    const publishedStories = await window.FFG_CONTENT_API.listPublishedStories();
+    if (requestVersion === publicStoriesState.requestVersion) {
+      replacePublishedStories(publishedStories);
+    }
+  } catch (error) {
+    console.warn('Published stories could not be refreshed.', error);
+  } finally {
+    if (requestVersion === publicStoriesState.requestVersion) {
+      publicStoriesState.loading = false;
+    }
+  }
+}
+
 function getDemoStories() {
   return stories.filter((story) => story.source === 'demo-submission');
 }
@@ -339,6 +435,12 @@ function showPage(pageName) {
 
   if (pageName === 'archive') renderArchive();
   if (pageName === 'advice') renderAdvice();
+  if (pageName === 'moderation') {
+    renderModeration();
+    if (window.FFG_AUTH?.can('review-content') && !moderationState.loaded) {
+      loadModerationStories();
+    }
+  }
 
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
@@ -1346,6 +1448,529 @@ function renderAdvice() {
   applySiteLanguage(grid);
 }
 
+function isReviewerSession(authState = window.FFG_AUTH?.getSnapshot()) {
+  return authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED
+    && ['moderator', 'administrator'].includes(authState.account?.role);
+}
+
+function getModerationErrorMessage(errorCode) {
+  const useChinese = tagUiState.language === 'zh';
+  const messages = {
+    'moderator-required': {
+      zh: '当前账户没有审核权限。',
+      en: 'This account does not have reviewer access.'
+    },
+    'invalid-review-reason': {
+      zh: '请填写8–500个字符的审核理由。',
+      en: 'Provide a review reason between 8 and 500 characters.'
+    },
+    'review-conflict': {
+      zh: '这篇故事已由其他审核操作处理，队列将重新加载。',
+      en: 'This story was already reviewed elsewhere. The queue will be refreshed.'
+    },
+    'network-error': {
+      zh: '暂时无法连接审核服务，请稍后重试。',
+      en: 'The moderation service could not be reached. Try again later.'
+    }
+  };
+  return messages[errorCode]?.[useChinese ? 'zh' : 'en']
+    || (useChinese ? '审核操作暂时无法完成，请重试。' : 'The moderation action could not be completed. Try again.');
+}
+
+function initModeration() {
+  if (moderationState.initialised || !window.FFG_AUTH) return;
+  moderationState.initialised = true;
+
+  document.getElementById('refresh-moderation')?.addEventListener('click', () => {
+    moderationState.loaded = false;
+    moderationState.message = '';
+    loadModerationStories();
+  });
+
+  document.getElementById('moderation-list')?.addEventListener('submit', async (event) => {
+    const form = event.target.closest('[data-moderation-form]');
+    if (!form) return;
+    event.preventDefault();
+
+    const decision = event.submitter?.dataset.reviewDecision;
+    const storyId = form.dataset.storyId;
+    const reasonInput = form.querySelector('[name="review-reason"]');
+    const status = form.querySelector('[data-review-status]');
+    const reason = String(reasonInput?.value || '').trim();
+    if (!['approve', 'reject'].includes(decision)) return;
+
+    if (reason.length < 8 || reason.length > 500) {
+      if (status) status.textContent = getModerationErrorMessage('invalid-review-reason');
+      reasonInput?.focus();
+      return;
+    }
+
+    moderationState.actionStoryId = storyId;
+    form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+    if (status) {
+      status.textContent = tagUiState.language === 'zh'
+        ? '正在记录审核决定……'
+        : 'Recording the review decision...';
+    }
+
+    try {
+      await window.FFG_CONTENT_API.decideStory(storyId, { decision, reason });
+      moderationState.stories = moderationState.stories.filter((story) => story.id !== storyId);
+      moderationState.errorCode = null;
+      moderationState.message = decision === 'approve'
+        ? (tagUiState.language === 'zh'
+          ? '故事已通过人工审核，并进入匿名公开归档。'
+          : 'The story was approved by a human and added to the anonymous public archive.')
+        : (tagUiState.language === 'zh'
+          ? '故事未获发布批准，审核理由已保存给作者查看。'
+          : 'The story was not approved for publication. The reason is saved for the author.');
+      renderModeration();
+      await Promise.allSettled([loadPublishedStories(), loadMyStories()]);
+    } catch (error) {
+      const actionErrorCode = error.code || 'request-failed';
+      moderationState.message = getModerationErrorMessage(actionErrorCode);
+      if (status) status.textContent = moderationState.message;
+      form.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+      if (error.code === 'review-conflict') {
+        moderationState.loaded = false;
+        await loadModerationStories();
+      }
+    } finally {
+      moderationState.actionStoryId = null;
+    }
+  });
+
+  window.FFG_AUTH.subscribe((authState) => {
+    if (isReviewerSession(authState) && window.FFG_CONTENT_API?.enabled) {
+      renderModeration(authState);
+      if (!moderationState.loaded && !moderationState.loading) loadModerationStories();
+      return;
+    }
+
+    moderationState.requestVersion += 1;
+    moderationState.loading = false;
+    moderationState.loaded = false;
+    moderationState.stories = [];
+    moderationState.errorCode = null;
+    moderationState.message = '';
+    renderModeration(authState);
+  });
+}
+
+async function loadModerationStories() {
+  const authState = window.FFG_AUTH?.getSnapshot();
+  if (!isReviewerSession(authState) || !window.FFG_CONTENT_API?.enabled) {
+    renderModeration(authState);
+    return;
+  }
+
+  const requestVersion = moderationState.requestVersion + 1;
+  moderationState.requestVersion = requestVersion;
+  moderationState.loading = true;
+  moderationState.errorCode = null;
+  moderationState.message = '';
+  renderModeration(authState);
+
+  try {
+    const queue = await window.FFG_CONTENT_API.listModerationStories();
+    if (requestVersion !== moderationState.requestVersion) return;
+    moderationState.stories = [...queue];
+    moderationState.loaded = true;
+  } catch (error) {
+    if (requestVersion !== moderationState.requestVersion) return;
+    moderationState.errorCode = error.code || 'request-failed';
+    moderationState.loaded = false;
+  } finally {
+    if (requestVersion === moderationState.requestVersion) {
+      moderationState.loading = false;
+      renderModeration();
+    }
+  }
+}
+
+function renderModeration(authState = window.FFG_AUTH?.getSnapshot()) {
+  const locked = document.getElementById('moderation-locked');
+  const loading = document.getElementById('moderation-loading');
+  const error = document.getElementById('moderation-error');
+  const empty = document.getElementById('moderation-empty');
+  const list = document.getElementById('moderation-list');
+  const status = document.getElementById('moderation-page-status');
+  const refresh = document.getElementById('refresh-moderation');
+  if (!locked || !loading || !error || !empty || !list || !status || !refresh) return;
+
+  const canReview = isReviewerSession(authState) && Boolean(window.FFG_CONTENT_API?.enabled);
+  locked.hidden = canReview;
+  loading.hidden = !canReview || !moderationState.loading;
+  error.hidden = !canReview || moderationState.loading || !moderationState.errorCode;
+  empty.hidden = !canReview
+    || moderationState.loading
+    || Boolean(moderationState.errorCode)
+    || !moderationState.loaded
+    || moderationState.stories.length > 0;
+  list.hidden = !canReview
+    || moderationState.loading
+    || Boolean(moderationState.errorCode)
+    || moderationState.stories.length === 0;
+  refresh.disabled = !canReview || moderationState.loading;
+
+  const useChinese = tagUiState.language === 'zh';
+  if (!canReview) {
+    const signedIn = authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
+    locked.querySelector('h3').textContent = signedIn
+      ? (useChinese ? '当前账户没有审核权限' : 'This account does not have reviewer access')
+      : (useChinese ? '需要审核员权限' : 'Moderator access is required');
+    locked.querySelector('p').textContent = signedIn
+      ? (useChinese ? '投稿与个人账户功能仍可正常使用。' : 'Story submission and private account features remain available.')
+      : (useChinese ? '请使用获授权的审核员账户登录，才能查看私密投稿。' : 'Sign in with an authorised reviewer account to see private submissions.');
+  }
+
+  status.textContent = moderationState.message
+    || (canReview && moderationState.loaded
+      ? (useChinese
+        ? `当前有 ${moderationState.stories.length} 篇故事等待人工审核。`
+        : `${moderationState.stories.length} ${moderationState.stories.length === 1 ? 'story is' : 'stories are'} awaiting human review.`)
+      : '');
+
+  if (list.hidden) {
+    list.replaceChildren();
+    return;
+  }
+
+  list.innerHTML = moderationState.stories.map((story) => {
+    const reasonId = `review-reason-${story.id}`;
+    const submitted = formatOwnedStoryDate(story.createdAt);
+    const automatedLabel = story.automatedReviewStatus === 'not-configured'
+      ? (useChinese ? 'AI 安全筛查：未配置' : 'AI safety check: not configured')
+      : (useChinese ? `AI 安全筛查：${story.automatedReviewStatus}` : `AI safety check: ${story.automatedReviewStatus}`);
+    return `
+      <article class="moderation-item">
+        <div class="moderation-item-heading">
+          <div>
+            <span class="story-board">${escapeHtml(formatBoardName(story.board))}</span>
+            <h3>${escapeHtml(story.title)}</h3>
+          </div>
+          <span class="review-status">${useChinese ? '待人工审核' : 'Pending human review'}</span>
+        </div>
+        <p class="moderation-story-body">${escapeHtml(story.content)}</p>
+        <div class="story-tags">
+          ${story.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
+        </div>
+        <dl class="my-story-meta">
+          <div><dt>${useChinese ? '回应偏好' : 'Response preference'}</dt><dd>${escapeHtml(formatCommentType(story.responsePreference))}</dd></div>
+          <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(submitted)}</dd></div>
+        </dl>
+        <p class="automated-review-state">${escapeHtml(automatedLabel)}</p>
+        <form class="moderation-decision-form" data-moderation-form data-story-id="${escapeHtml(story.id)}">
+          <label for="${escapeHtml(reasonId)}">${useChinese ? '给作者的审核理由（必填）' : 'Review reason for the author (required)'}</label>
+          <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required placeholder="${useChinese ? '清楚说明批准依据，或需要修改的隐私与规范问题。' : 'Explain the approval basis or the privacy and guideline changes needed.'}"></textarea>
+          <div class="moderation-actions">
+            <button type="submit" class="btn btn-primary" data-review-decision="approve">${useChinese ? '批准并匿名发布' : 'Approve and publish anonymously'}</button>
+            <button type="submit" class="btn btn-reject" data-review-decision="reject">${useChinese ? '拒绝发布' : 'Reject publication'}</button>
+          </div>
+          <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
+        </form>
+      </article>
+    `;
+  }).join('');
+}
+
+function initMyStories() {
+  if (myStoriesState.initialised || !window.FFG_AUTH) return;
+  myStoriesState.initialised = true;
+
+  document.getElementById('retry-my-stories')?.addEventListener('click', () => {
+    loadMyStories();
+  });
+
+  window.FFG_AUTH.subscribe((authState) => {
+    syncSubmissionModeUI(authState);
+    if (authState.status === window.FFG_AUTH.STATUS.AUTHENTICATED) {
+      loadMyStories();
+      return;
+    }
+
+    myStoriesState.requestVersion += 1;
+    myStoriesState.loading = false;
+    myStoriesState.stories = [];
+    myStoriesState.errorCode = null;
+    renderMyStories(authState);
+  });
+}
+
+async function loadMyStories() {
+  const authState = window.FFG_AUTH?.getSnapshot();
+  if (
+    authState?.status !== window.FFG_AUTH.STATUS.AUTHENTICATED
+    || !window.FFG_CONTENT_API?.enabled
+  ) {
+    renderMyStories(authState);
+    return;
+  }
+
+  const requestVersion = myStoriesState.requestVersion + 1;
+  myStoriesState.requestVersion = requestVersion;
+  myStoriesState.loading = true;
+  myStoriesState.errorCode = null;
+  renderMyStories(authState);
+
+  try {
+    const ownedStories = await window.FFG_CONTENT_API.listMyStories();
+    if (requestVersion !== myStoriesState.requestVersion) return;
+    myStoriesState.stories = [...ownedStories];
+  } catch (error) {
+    if (requestVersion !== myStoriesState.requestVersion) return;
+    myStoriesState.errorCode = error.code || 'request-failed';
+    if (error.code === 'authentication-required') {
+      window.FFG_AUTH.restoreSession().catch(() => {});
+    }
+  } finally {
+    if (requestVersion === myStoriesState.requestVersion) {
+      myStoriesState.loading = false;
+      renderMyStories();
+    }
+  }
+}
+
+function formatOwnedStoryDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(
+    tagUiState.language === 'zh' ? 'zh-CN' : 'en',
+    { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+  ).format(date);
+}
+
+function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
+  const locked = document.getElementById('my-stories-locked');
+  const empty = document.getElementById('my-stories-empty');
+  const loading = document.getElementById('my-stories-loading');
+  const error = document.getElementById('my-stories-error');
+  const list = document.getElementById('my-stories-list');
+  if (!locked || !empty || !loading || !error || !list || !window.FFG_AUTH) return;
+
+  const signedIn = authState?.status === window.FFG_AUTH.STATUS.AUTHENTICATED;
+  locked.hidden = signedIn;
+  loading.hidden = !signedIn || !myStoriesState.loading;
+  error.hidden = !signedIn || myStoriesState.loading || !myStoriesState.errorCode;
+  empty.hidden = !signedIn
+    || myStoriesState.loading
+    || Boolean(myStoriesState.errorCode)
+    || myStoriesState.stories.length > 0;
+  list.hidden = !signedIn
+    || myStoriesState.loading
+    || Boolean(myStoriesState.errorCode)
+    || myStoriesState.stories.length === 0;
+
+  const useChinese = tagUiState.language === 'zh';
+  loading.querySelector('h3').textContent = useChinese ? '正在加载你的故事……' : 'Loading your stories...';
+  loading.querySelector('p').textContent = useChinese ? '正在刷新你的私密工作区。' : 'Your private workspace is being refreshed.';
+  error.querySelector('h3').textContent = useChinese ? '暂时无法加载你的故事' : 'Could not load your stories';
+  error.querySelector('p').textContent = useChinese
+    ? '你的公开匿名状态不受影响，请稍后重试。'
+    : 'Your public identity is not affected. Please try again.';
+  error.querySelector('button').textContent = useChinese ? '重试' : 'Try again';
+
+  if (list.hidden) {
+    list.replaceChildren();
+    return;
+  }
+
+  list.innerHTML = myStoriesState.stories.map((story) => {
+    const statusLabel = story.moderationStatus === 'approved'
+      ? (useChinese ? '已通过并发布' : 'Approved and published')
+      : story.moderationStatus === 'rejected'
+        ? (useChinese ? '审核未通过' : 'Not approved')
+        : story.moderationStatus === 'withdrawn'
+          ? (useChinese ? '已撤回' : 'Withdrawn')
+          : (useChinese ? '待人工审核' : 'Pending human review');
+    const moderationNote = story.moderationStatus === 'pending-human-review'
+      ? story.automatedReviewStatus === 'not-configured'
+        ? (useChinese
+          ? 'AI 安全筛查尚未接入；内容只有在人工审核通过后才会公开。'
+          : 'AI safety screening is not connected yet. The story stays private until a human approves it.')
+        : (useChinese
+          ? '自动安全检查已经记录结果，内容仍需人工审核通过后才会公开。'
+          : 'The automated safety result is recorded, but a human must still approve publication.')
+      : story.moderationStatus === 'approved'
+        ? (useChinese
+          ? '人工审核已经完成，故事已匿名进入公开归档。'
+          : 'Human review is complete and the story is now in the anonymous public archive.')
+        : story.moderationStatus === 'rejected'
+          ? (useChinese
+            ? '人工审核已经完成，这篇故事目前不会公开。'
+            : 'Human review is complete and this story is not public.')
+          : (useChinese ? '这里显示的是与你的私密账户关联的审核记录。' : 'This review record is linked only to your private account.');
+    const decisionReason = story.decisionReason
+      ? `
+        <div class="review-reason">
+          <strong>${useChinese ? '人工审核说明' : 'Human review note'}</strong>
+          <p>${escapeHtml(story.decisionReason)}</p>
+          ${story.decidedAt
+            ? `<small>${escapeHtml(formatOwnedStoryDate(story.decidedAt))}</small>`
+            : ''}
+        </div>
+      `
+      : '';
+
+    return `
+      <article class="my-story-item">
+        <div class="my-story-heading">
+          <div>
+            <span class="story-board">${escapeHtml(formatBoardName(story.board))}</span>
+            <h3>${escapeHtml(story.title)}</h3>
+          </div>
+          <span class="review-status review-status--${escapeHtml(story.moderationStatus)}">${escapeHtml(statusLabel)}</span>
+        </div>
+        <p class="my-story-excerpt">${escapeHtml(truncateText(story.content, 260))}</p>
+        <div class="story-tags">
+          ${story.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
+        </div>
+        <dl class="my-story-meta">
+          <div><dt>${useChinese ? '回应偏好' : 'Response preference'}</dt><dd>${escapeHtml(formatCommentType(story.responsePreference))}</dd></div>
+          <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(formatOwnedStoryDate(story.createdAt))}</dd></div>
+        </dl>
+        <p class="moderation-note">${escapeHtml(moderationNote)}</p>
+        ${decisionReason}
+      </article>
+    `;
+  }).join('');
+}
+
+function syncSubmissionModeUI(authState = window.FFG_AUTH?.getSnapshot()) {
+  const submitButton = document.getElementById('submit-story-button');
+  const tagHelp = document.getElementById('story-tags-help');
+  const modeLabel = document.getElementById('submit-mode-label');
+  const modeIntro = document.getElementById('submit-mode-intro');
+  const workflowBadge = document.getElementById('submission-workflow-badge');
+  const workflowNote = document.getElementById('submission-workflow-note');
+  const serverMode = Boolean(window.FFG_CONTENT_API?.enabled);
+  const signedIn = authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
+  const useChinese = tagUiState.language === 'zh';
+
+  if (modeLabel) {
+    modeLabel.textContent = serverMode
+      ? (useChinese ? 'V0.2 · 内容归属' : 'V0.2 · Content ownership')
+      : (useChinese ? '本地原型预览' : 'Local prototype preview');
+  }
+  if (modeIntro) {
+    modeIntro.textContent = serverMode
+      ? (useChinese
+        ? '登录后，投稿会保存到私密服务并与你的账户关联；公开页面仍只显示匿名作者。'
+        : 'After sign-in, submissions are stored privately and linked to your account; public pages still show only an anonymous author.')
+      : (useChinese
+        ? '静态预览不会传输故事；路演投稿只保存在当前浏览器中。'
+        : 'This static preview does not transmit stories. Roadshow submissions stay only in this browser.');
+  }
+  if (workflowBadge) {
+    workflowBadge.textContent = serverMode
+      ? (useChinese ? '当前审核流程' : 'Current review workflow')
+      : (useChinese ? '计划中的正式流程' : 'Planned live workflow');
+  }
+  if (workflowNote) {
+    workflowNote.textContent = serverMode
+      ? (useChinese
+        ? '投稿会进入受权限保护的人工审核队列，不会即时公开。AI 安全筛查与审核通知邮件尚未接入。'
+        : 'Submissions enter a role-protected human review queue and are not published immediately. AI safety screening and review-notification email are not connected yet.')
+      : (useChinese
+        ? '正式版本将先进行匿名化与内容审核，再决定是否公开，并提供撤回与申诉控制。'
+        : 'The live service will review and anonymise submissions before publication, with withdrawal and appeal controls.');
+  }
+  if (submitButton && submitButton.dataset.busy !== 'true') {
+    submitButton.textContent = serverMode
+      ? signedIn
+        ? (useChinese ? '提交审核' : 'Submit for review')
+        : (useChinese ? '登录后投稿' : 'Sign in to submit')
+      : (useChinese ? '保存到当前浏览器' : 'Add to this browser demo');
+  }
+  if (tagHelp) {
+    tagHelp.textContent = serverMode
+      ? (useChinese
+        ? '选择主题板块后可添加最多3个标签；标签会随投稿一起进入审核。'
+        : 'Choose a board, then add up to three tags. Tags are included with the review submission.')
+      : (useChinese
+        ? '选择主题板块后可添加最多3个标签；内容只保存在当前浏览器。'
+        : 'Choose a board, then add up to three tags. This browser-only demo stores them locally.');
+  }
+}
+
+function setSubmissionBusy(isBusy) {
+  const submitButton = document.getElementById('submit-story-button');
+  if (!submitButton) return;
+  submitButton.disabled = isBusy;
+  submitButton.dataset.busy = String(isBusy);
+  if (isBusy) {
+    submitButton.textContent = tagUiState.language === 'zh' ? '正在提交……' : 'Submitting...';
+  } else {
+    syncSubmissionModeUI();
+  }
+}
+
+function getSubmissionErrorMessage(error) {
+  const useChinese = tagUiState.language === 'zh';
+  const messages = {
+    'authentication-required': {
+      zh: '请先登录私密账户，再提交故事。你已经填写的内容不会被清空。',
+      en: 'Sign in to your private account before submitting. Your draft will stay on this page.'
+    },
+    'invalid-story-length': {
+      zh: '故事正文需包含150–200个英文单词与中日韩字符计数单位。',
+      en: 'The story must contain 150–200 English words and CJK character units.'
+    },
+    'invalid-tags': {
+      zh: '请选择不超过3个有效标签。',
+      en: 'Choose no more than three valid tags.'
+    },
+    'network-error': {
+      zh: '暂时无法连接投稿服务，请检查网络后重试。',
+      en: 'The submission service could not be reached. Check your connection and try again.'
+    }
+  };
+  return messages[error?.code]?.[useChinese ? 'zh' : 'en']
+    || (useChinese ? '投稿暂时没有完成，请稍后重试。' : 'The submission could not be completed. Please try again.');
+}
+
+function showSubmissionSuccess({ mode, persisted = false }) {
+  const form = document.getElementById('submit-form');
+  const success = document.getElementById('submit-success');
+  const badge = document.getElementById('submit-success-badge');
+  const title = document.getElementById('submit-success-title');
+  const lead = document.getElementById('submit-success-lead');
+  const summary = document.getElementById('submit-success-summary');
+  const viewButton = document.getElementById('view-submitted-story');
+  const resetDemoButton = document.getElementById('reset-demo-stories');
+  const useChinese = tagUiState.language === 'zh';
+
+  if (mode === 'server') {
+    badge.textContent = useChinese ? '已接收 · 待人工审核' : 'Received · Pending human review';
+    title.textContent = useChinese ? '投稿已进入私密审核队列' : 'Your story is in the private review queue';
+    lead.textContent = useChinese
+      ? '故事已与当前私密账户关联，但尚未公开。'
+      : 'The story is linked to your private account, but it is not public.';
+    summary.textContent = useChinese
+      ? 'AI 安全筛查尚未接入。故事已进入受权限保护的人工审核队列；只有人工批准后，故事才会匿名发布。'
+      : 'AI safety screening is not connected yet. The story is in a role-protected human review queue; only a human approval can publish it anonymously.';
+    viewButton.dataset.page = 'account';
+    viewButton.textContent = useChinese ? '查看我的故事' : 'View my stories';
+    resetDemoButton.hidden = true;
+  } else {
+    badge.textContent = useChinese ? '本地原型预览' : 'Local prototype preview';
+    title.textContent = useChinese ? '故事已保存到当前版本' : 'Story added to this browser demo';
+    lead.textContent = persisted
+      ? (useChinese ? '内容只保存在当前浏览器，没有发送到服务器。' : 'Saved only in this browser; nothing was sent to a server.')
+      : (useChinese ? '浏览器存储不可用，这篇故事只存在于当前页面会话。' : 'Browser storage was unavailable, so this story exists only in this page session.');
+    summary.textContent = useChinese
+      ? '你可以检查故事、标签和归档筛选效果；这不是正式审核决定。'
+      : 'You can check the story, tags, and Archive filtering. This is not a moderation decision.';
+    viewButton.dataset.page = 'archive';
+    viewButton.textContent = useChinese ? '在故事归档中查看' : 'View in Story Archive';
+    resetDemoButton.hidden = false;
+  }
+
+  form.hidden = true;
+  success.hidden = false;
+  success.focus();
+}
+
 function initSubmitForm() {
   const form = document.getElementById('submit-form');
   const boardSelect = document.getElementById('story-board');
@@ -1354,7 +1979,7 @@ function initSubmitForm() {
   const tagContainer = document.getElementById('tag-checkboxes');
   const resetButton = document.getElementById('reset-prototype-form');
   const resetDemoButton = document.getElementById('reset-demo-stories');
-  const viewSubmittedButton = document.querySelector('#submit-success [data-page="archive"]');
+  const viewSubmittedButton = document.getElementById('view-submitted-story');
 
   boardSelect?.addEventListener('change', () => {
     const nextBoard = boardSelect.value;
@@ -1381,7 +2006,7 @@ function initSubmitForm() {
 
   storyText?.addEventListener('input', updateStoryCount);
 
-  form?.addEventListener('submit', (event) => {
+  form?.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     const count = countStoryUnits(storyText?.value || '');
@@ -1407,30 +2032,64 @@ function initSubmitForm() {
       formError.textContent = '';
     }
 
-    const { story, persisted } = createDemoStory(form);
-    appState.lastSubmittedStoryId = story.id;
-    renderArchive();
-    syncDemoStoryResetButton();
-
-    form.hidden = true;
-    const success = document.getElementById('submit-success');
-    const successSummary = document.getElementById('submit-success-summary');
-    if (successSummary) {
-      successSummary.textContent = persisted
-        ? tagUiState.language === 'zh'
-          ? '内容已保存到当前浏览器。现在可以检查故事、标签和归档筛选效果；正式版本将在公开前完成匿名化检查和人工审核。'
-          : 'Saved in this browser local storage. You can now verify the story, its tags, and Archive filtering. A live pilot would review and anonymise it before publication.'
-        : tagUiState.language === 'zh'
-          ? '浏览器存储不可用，因此这篇故事只存在于当前页面会话中，内容没有发送到服务器。'
-          : 'Browser storage was unavailable, so this story exists only for the current page session. Nothing was transmitted to a server.';
+    const serverMode = Boolean(window.FFG_CONTENT_API?.enabled);
+    if (serverMode && !window.FFG_AUTH?.can('create-story')) {
+      if (formError) {
+        formError.hidden = false;
+        formError.textContent = getSubmissionErrorMessage({ code: 'authentication-required' });
+      }
+      document.querySelector('.nav-account-link')?.focus();
+      return;
     }
-    if (success) {
-      success.hidden = false;
-      success.focus();
+
+    setSubmissionBusy(true);
+    try {
+      if (serverMode) {
+        const formData = new FormData(form);
+        const story = await window.FFG_CONTENT_API.createStory({
+          title: String(formData.get('story-title') || '').trim(),
+          board: String(formData.get('story-board') || ''),
+          content: String(formData.get('story-text') || '').trim(),
+          tags: [...submitTagState.selected],
+          responsePreference: String(formData.get('comment-mode') || ''),
+          guidelinesAccepted: formData.get('guidelines-accept') === 'on'
+        });
+        myStoriesState.requestVersion += 1;
+        myStoriesState.loading = false;
+        myStoriesState.stories = [
+          story,
+          ...myStoriesState.stories.filter((item) => item.id !== story.id)
+        ];
+        myStoriesState.errorCode = null;
+        renderMyStories();
+        if (window.FFG_AUTH.can('review-content')) {
+          moderationState.loaded = false;
+          loadModerationStories();
+        }
+        showSubmissionSuccess({ mode: 'server' });
+      } else {
+        const { story, persisted } = createDemoStory(form);
+        appState.lastSubmittedStoryId = story.id;
+        renderArchive();
+        syncDemoStoryResetButton();
+        showSubmissionSuccess({ mode: 'demo', persisted });
+      }
+    } catch (error) {
+      if (formError) {
+        formError.hidden = false;
+        formError.textContent = getSubmissionErrorMessage(error);
+        formError.focus();
+      }
+      if (error.code === 'authentication-required') {
+        window.FFG_AUTH.restoreSession().catch(() => {});
+      }
+    } finally {
+      setSubmissionBusy(false);
     }
   });
 
   viewSubmittedButton?.addEventListener('click', () => {
+    if (viewSubmittedButton.dataset.page !== 'archive') return;
     const story = findStoryById(appState.lastSubmittedStoryId);
     if (!story) return;
 
@@ -1438,6 +2097,7 @@ function initSubmitForm() {
     filterState.tags.clear();
     filterState.commentMode = 'all';
     filterState.search = story.title.toLocaleLowerCase();
+    renderArchive();
   });
 
   resetButton?.addEventListener('click', () => {
@@ -1453,6 +2113,7 @@ function initSubmitForm() {
   renderSubmissionTags(submitTagState.board);
   updateStoryCount();
   syncDemoStoryResetButton();
+  syncSubmissionModeUI();
 }
 
 function resetSubmissionForm(options = {}) {

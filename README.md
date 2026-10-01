@@ -2,8 +2,8 @@
 
 > A student-led platform for sharing failure stories and building resilience among university students.
 
-**🏆 NUS-funded Project — S$5,000**  
-**🌏 Five-country International Team**  
+**🏆 NUS-funded Project — S$5,000**<br>
+**🌏 Five-country International Team**<br>
 **🎓 NUS Asian Undergraduate Symposium (AUS) 2026**
 
 **Project Lead & Presenter:** Shuyue Quan / 全书阅
@@ -175,8 +175,8 @@ This runs the accepted static browser experience on the public <code>main</code>
 
 ## Project Lead
 
-**Shuyue Quan / 全书阅**  
-Project Lead & Presenter, Fail Forward Gallery  
+**Shuyue Quan / 全书阅**<br>
+Project Lead & Presenter, Fail Forward Gallery<br>
 NUS Asian Undergraduate Symposium 2026
 
 ---

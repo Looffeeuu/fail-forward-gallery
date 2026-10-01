@@ -18,6 +18,8 @@
       <li><a href="#" data-page="advice" class="nav-link">Advice Hub</a></li>
       <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
       <li><a href="#" data-page="about" class="nav-link">About</a></li>
+      <li data-moderator-only hidden><a href="#" data-page="moderation" class="nav-link">Review Queue</a></li>
+      <li><a href="#" data-page="account" class="nav-link nav-account-link" data-no-translate>Sign in</a></li>
     </ul>
     <div class="site-language-switch" role="group" aria-label="界面语言 / Interface language">
       <button type="button" class="active" data-site-language="zh" aria-pressed="true" lang="zh-CN">中文</button>
@@ -115,7 +117,7 @@
 <!-- ==================== STORY ARCHIVE PAGE ==================== -->
 <section id="page-archive" class="page">
   <div class="page-header">
-    <span class="prototype-label">Prototype preview</span>
+    <span class="prototype-label" id="submit-mode-label" data-no-translate>Content submission</span>
     <h1 id="archive-title">Failure Story Archive</h1>
     <p>This demo contains anonymised sample stories for exploring the experience. Browse, witness, and respond within each author’s chosen boundary.</p>
   </div>
@@ -194,12 +196,12 @@
   <div class="page-header">
     <span class="prototype-label">Prototype preview</span>
     <h1>Submit Your Failure Résumé</h1>
-    <p>This static demo does not transmit your story. For the roadshow only, submitted stories can be saved in this browser local demo storage.</p>
+    <p id="submit-mode-intro" data-no-translate></p>
   </div>
 
   <div class="submit-container">
     <div class="submit-info">
-      <span class="prototype-badge">Planned pilot workflow</span>
+      <span class="prototype-badge" id="submission-workflow-badge" data-no-translate></span>
       <h2>Submission Guidelines</h2>
       <ul>
         <li><strong>Age:</strong> Intended for university students and recent graduates aged 19–24</li>
@@ -208,7 +210,7 @@
         <li><strong>Privacy:</strong> Do not include names, contact information, student IDs, or details that could identify another person</li>
         <li><strong>Content:</strong> Focus on your own experience, its impact, and what you are learning or still navigating</li>
       </ul>
-      <p class="planned-note">In a future live pilot, submissions would enter an anonymous, moderated review process before publication, with clear user controls for requesting changes or removal.</p>
+      <p class="planned-note" id="submission-workflow-note" data-no-translate></p>
     </div>
 
     <aside class="safety-note" aria-labelledby="safety-note-title">
@@ -238,7 +240,7 @@
         <div class="form-label-row">
           <span class="form-label" id="story-tags-label">Tags (optional, up to 3) / 标签（可选，最多3个）</span>
         </div>
-        <p class="form-help" id="story-tags-help">Choose a board to see relevant tags. Selected tags are saved only with this local demo story.</p>
+        <p class="form-help" id="story-tags-help">Choose a board to see relevant tags.</p>
         <div class="tag-checkboxes" id="tag-checkboxes" aria-labelledby="story-tags-label" aria-describedby="story-tags-help story-tags-selection-status">
           <!-- Populated by JavaScript based on board selection -->
         </div>
@@ -253,7 +255,7 @@
           <span>Total counted units: <strong id="total-unit-count">0</strong></span>
         </div>
         <p class="story-count-status" id="story-count-status">Enter 150–200 counted units.</p>
-        <p class="form-error" id="form-error" role="alert" hidden></p>
+        <p class="form-error" id="form-error" role="alert" tabindex="-1" hidden></p>
       </div>
 
       <div class="form-group">
@@ -270,20 +272,20 @@
       <div class="form-group checkbox-group">
         <label>
           <input type="checkbox" id="guidelines-accept" name="guidelines-accept" required>
-          I confirm that this prototype entry follows the privacy and content guidelines above.
+          I confirm that this story follows the privacy and content guidelines above.
         </label>
       </div>
 
-      <button type="submit" class="btn btn-primary">Add story to this demo / 添加到演示</button>
+      <button type="submit" class="btn btn-primary" id="submit-story-button" data-no-translate>Submit for review</button>
     </form>
 
     <div class="submit-success" id="submit-success" hidden tabindex="-1">
-      <span class="prototype-badge">Local prototype preview / 本地演示</span>
-      <h2>Story added to the demo</h2>
-      <p><strong>Your story was added only to this browser demo.</strong> It was not transmitted to a server and this immediate preview is not a moderation decision.</p>
-      <p id="submit-success-summary">You can now view the story, its selected tags, and Archive filtering. A live pilot would review and anonymise submissions before publication.</p>
+      <span class="prototype-badge" id="submit-success-badge" data-no-translate></span>
+      <h2 id="submit-success-title" data-no-translate></h2>
+      <p id="submit-success-lead" data-no-translate></p>
+      <p id="submit-success-summary" data-no-translate></p>
       <div class="submit-success-actions">
-        <button type="button" class="btn btn-primary" data-page="archive">View in Story Archive / 在归档中查看</button>
+        <button type="button" class="btn btn-primary" id="view-submitted-story" data-page="account" data-no-translate>View my stories</button>
         <button type="button" class="btn btn-secondary" id="reset-prototype-form">Add another story / 再添加一篇</button>
         <button type="button" class="btn btn-ghost" id="reset-demo-stories">Reset submitted stories / 重置投稿演示</button>
       </div>
@@ -330,8 +332,8 @@
           <p>Submitters choose: no comment, encouragement only, similar experience sharing, or gentle advice. Community support that respects individual boundaries.</p>
         </div>
         <div>
-          <h3>🛡️ Planned AI + Human Moderation</h3>
-          <p><span class="prototype-badge">Planned pilot workflow</span> The current demo is not connected to a moderation queue. A future pilot would combine automated pre-screening with trained human review and transparent user controls.</p>
+          <h3>🛡️ Human Moderation Foundation</h3>
+          <p><span class="prototype-badge">Current V0.2 workflow</span> New stories stay private until an authorised human reviewer approves them. AI pre-screening and review-notification email are not connected yet.</p>
         </div>
         <div>
           <h3>🏛️ Pop-Up Exhibitions</h3>
@@ -384,6 +386,183 @@
   </footer>
 </section>
 
+<!-- ==================== MODERATION PAGE ==================== -->
+<section id="page-moderation" class="page">
+  <div class="page-header moderation-header">
+    <span class="version-badge">V0.2 · Human moderation</span>
+    <h1>Story review queue</h1>
+    <p>This internal workspace is visible only to authorised reviewers. Every decision requires a reason and is recorded in an audit trail.</p>
+  </div>
+
+  <div class="section moderation-section">
+    <div class="moderation-toolbar">
+      <div>
+        <span class="account-eyebrow">Private reviewer workspace</span>
+        <h2>Stories awaiting a human decision</h2>
+      </div>
+      <button type="button" class="btn btn-secondary" id="refresh-moderation">Refresh queue</button>
+    </div>
+    <p class="moderation-page-status" id="moderation-page-status" role="status" aria-live="polite" data-no-translate></p>
+
+    <div class="locked-empty-state" id="moderation-locked">
+      <span class="lock-mark" aria-hidden="true">◇</span>
+      <div>
+        <h3>Moderator access is required</h3>
+        <p>Sign in with an authorised reviewer account to see private submissions.</p>
+      </div>
+    </div>
+    <div class="locked-empty-state" id="moderation-loading" role="status" aria-live="polite" hidden>
+      <span class="lock-mark is-loading" aria-hidden="true"></span>
+      <div>
+        <h3>Loading the review queue…</h3>
+        <p>Pending stories remain private while the queue is refreshed.</p>
+      </div>
+    </div>
+    <div class="locked-empty-state is-error" id="moderation-error" hidden>
+      <span class="lock-mark" aria-hidden="true">!</span>
+      <div>
+        <h3>The review queue could not be loaded</h3>
+        <p>No moderation decision was changed. Please try again.</p>
+      </div>
+    </div>
+    <div class="locked-empty-state" id="moderation-empty" hidden>
+      <span class="lock-mark" aria-hidden="true">✓</span>
+      <div>
+        <h3>No stories are waiting for review</h3>
+        <p>New submissions will appear here without public author identity.</p>
+      </div>
+    </div>
+    <div class="moderation-list" id="moderation-list" aria-live="polite" data-no-translate hidden></div>
+
+    <aside class="moderation-boundary" aria-labelledby="moderation-boundary-title">
+      <h2 id="moderation-boundary-title">Current safety boundary</h2>
+      <ul>
+        <li>Approve only content that is safe to publish anonymously and follows the community guidelines.</li>
+        <li>Reject content that needs privacy or guideline changes, and give the author a clear, respectful reason.</li>
+        <li>AI safety screening is currently marked “not configured”; it does not make or simulate decisions in this version.</li>
+      </ul>
+    </aside>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
+<!-- ==================== ACCOUNT PAGE ==================== -->
+<section id="page-account" class="page">
+  <div class="page-header account-header">
+    <span class="version-badge">V0.2 · Private account and review foundation</span>
+    <h1>Your account stays private. Your stories stay anonymous.</h1>
+    <p>Sign in is used only to recognise your own stories, follow-ups, moderation status, and appeals.</p>
+  </div>
+
+  <div class="section account-section">
+    <div class="account-grid">
+      <article class="account-card auth-card" aria-labelledby="auth-card-title">
+        <div class="account-card-heading">
+          <span class="account-eyebrow">Private account</span>
+          <h2 id="auth-card-title">Sign in with mobile</h2>
+          <p>For the China pilot, a one-time SMS code will verify account ownership. Your mobile number will never appear with a public story or response.</p>
+        </div>
+
+        <form id="auth-form" class="auth-form" novalidate>
+          <div class="form-group">
+            <label for="auth-phone">Mainland China mobile number</label>
+            <div class="phone-input-group">
+              <span class="phone-prefix" aria-hidden="true">+86</span>
+              <input id="auth-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="11" pattern="1[3-9][0-9]{9}" placeholder="11-digit mobile number" aria-describedby="auth-privacy-note auth-status" required>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="auth-request-code">Continue with mobile</button>
+
+          <div id="auth-code-step" class="auth-code-step" hidden>
+            <div class="form-group">
+              <label for="auth-code">SMS verification code</label>
+              <input id="auth-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}" placeholder="Enter the six-digit code">
+            </div>
+            <div class="auth-code-actions">
+              <button type="button" class="btn btn-primary" id="auth-verify-code">Verify and sign in</button>
+              <button type="button" class="btn btn-ghost" id="auth-change-phone">Use a different mobile number</button>
+            </div>
+          </div>
+        </form>
+
+        <p id="auth-status" class="auth-status" role="status" aria-live="polite" data-no-translate></p>
+        <p id="auth-privacy-note" class="auth-privacy-note" data-no-translate>Authentication service is not connected yet. This form currently sends and stores no mobile number or verification code.</p>
+
+        <div class="auth-data-boundary" aria-labelledby="auth-data-boundary-title">
+          <strong id="auth-data-boundary-title">China pilot account boundary</strong>
+          <ul>
+            <li>Mobile verification identifies account ownership only in the private system.</li>
+            <li>An optional email may later be added for review notices and appeals, not public identity.</li>
+          </ul>
+        </div>
+
+        <div id="authenticated-summary" class="authenticated-summary" hidden>
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>Signed in privately</strong>
+            <p>Your public posts and responses still display an anonymous author label.</p>
+          </div>
+          <button type="button" class="btn btn-ghost" id="auth-sign-out">Sign out</button>
+        </div>
+      </article>
+
+      <aside class="account-card anonymity-card" aria-labelledby="anonymity-title">
+        <span class="account-eyebrow">Public anonymity</span>
+        <h2 id="anonymity-title">Identity and content remain separated</h2>
+        <ul class="privacy-list">
+          <li><span aria-hidden="true">01</span><div><strong>People see an anonymous author</strong><p>No mobile number, email, account ID, or profile is displayed with your story.</p></div></li>
+          <li><span aria-hidden="true">02</span><div><strong>You can find your work again</strong><p>Your private account links you to your stories, responses, and follow-ups.</p></div></li>
+          <li><span aria-hidden="true">03</span><div><strong>Moderation remains accountable</strong><p>Review decisions, reasons, appeals, and withdrawals are recorded without exposing you publicly.</p></div></li>
+        </ul>
+      </aside>
+    </div>
+
+    <section class="my-stories-card" aria-labelledby="my-stories-title">
+      <div>
+        <span class="account-eyebrow">Private workspace</span>
+        <h2 id="my-stories-title">My stories</h2>
+      </div>
+      <div class="locked-empty-state" id="my-stories-locked">
+        <span class="lock-mark" aria-hidden="true">◇</span>
+        <div>
+          <h3>Sign in to manage your anonymous contributions</h3>
+          <p>Published stories, pending reviews, follow-ups, appeals, and withdrawal controls will appear here.</p>
+        </div>
+      </div>
+      <div class="locked-empty-state" id="my-stories-empty" hidden>
+        <span class="lock-mark" aria-hidden="true">✓</span>
+        <div>
+          <h3>No stories linked to this account yet</h3>
+          <p>Your submissions and review states will appear here without exposing your identity publicly.</p>
+        </div>
+      </div>
+      <div class="locked-empty-state" id="my-stories-loading" role="status" aria-live="polite" hidden>
+        <span class="lock-mark is-loading" aria-hidden="true"></span>
+        <div data-no-translate>
+          <h3>Loading your stories...</h3>
+          <p>Your private workspace is being refreshed.</p>
+        </div>
+      </div>
+      <div class="locked-empty-state is-error" id="my-stories-error" hidden>
+        <span class="lock-mark" aria-hidden="true">!</span>
+        <div data-no-translate>
+          <h3>Could not load your stories</h3>
+          <p>Your public identity is not affected. Please try again.</p>
+          <button type="button" class="btn btn-secondary" id="retry-my-stories">Try again</button>
+        </div>
+      </div>
+      <div class="my-story-list" id="my-stories-list" aria-live="polite" data-no-translate hidden></div>
+    </section>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
+  </footer>
+</section>
+
 <!-- ==================== MODAL ==================== -->
 <div class="modal-overlay" id="modal-overlay" aria-hidden="true">
   <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
@@ -396,6 +575,9 @@
 
 <script src="i18n.js"></script>
 <script src="data.js"></script>
+<script src="runtime-config.js"></script>
+<script src="auth.js"></script>
+<script src="auth-http-adapter.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

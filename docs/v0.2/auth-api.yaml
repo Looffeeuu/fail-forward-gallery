@@ -1,0 +1,502 @@
+openapi: 3.1.0
+info:
+  title: Fail Forward Gallery Account, Story, and Moderation API
+  version: 0.2.0
+  description: China-first mobile verification, private cookie session, owned story submission, public approved-story feed, and role-protected human moderation contract.
+servers:
+  - url: /
+    description: Same-origin deployment
+paths:
+  /api/v1/auth/session:
+    get:
+      summary: Restore the current private session and issue a CSRF token
+      operationId: restoreSession
+      responses:
+        '200':
+          description: Session state. The response never includes a mobile number or account ID.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly SameSite CSRF cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+  /api/v1/auth/sms-code:
+    post:
+      summary: Request a one-time SMS verification code
+      operationId: requestPhoneCode
+      description: Production will send through an approved mainland SMS provider. Development prints the code only to the server terminal.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+861[3-9][0-9]{9}$'
+      responses:
+        '202':
+          description: Request accepted without revealing whether an account already exists.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, expiresInSeconds, phoneHint]
+                properties:
+                  status:
+                    const: accepted
+                  expiresInSeconds:
+                    type: integer
+                  phoneHint:
+                    type: string
+                    pattern: '^\*{6}[0-9]{4}$'
+        '400':
+          $ref: '#/components/responses/InvalidPhone'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/auth/sms-code/verify:
+    post:
+      summary: Verify a six-digit SMS code and create a private session
+      operationId: verifyPhoneCode
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, code]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+861[3-9][0-9]{9}$'
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  pattern: '^[0-9]{6}$'
+      responses:
+        '200':
+          description: Verification succeeded and an HttpOnly session cookie was set.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Secure in production, HttpOnly and SameSite session and CSRF cookies.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [account, csrfToken]
+                properties:
+                  account:
+                    $ref: '#/components/schemas/PublicClientAccount'
+                  csrfToken:
+                    type: string
+                    description: Rotated token kept only in browser memory.
+        '400':
+          $ref: '#/components/responses/InvalidCode'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/auth/sign-out:
+    post:
+      summary: End the current session and rotate the CSRF token
+      operationId: signOut
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Session ended and the session cookie was cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [csrfToken]
+                properties:
+                  csrfToken:
+                    type: string
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+  /api/v1/stories:
+    get:
+      summary: List human-approved anonymous stories
+      operationId: listPublishedStories
+      description: Public feed. Pending, rejected, owner, account, and private review fields are never returned.
+      responses:
+        '200':
+          description: Human-approved stories only.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [stories]
+                properties:
+                  stories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublishedStory'
+    post:
+      summary: Submit a story owned by the current private account
+      operationId: createStory
+      description: Ownership is always resolved from the HttpOnly session cookie. Client account identifiers are ignored. A new story is private and pending human review.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorySubmission'
+      responses:
+        '201':
+          description: Story saved privately and queued for human review.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [story]
+                properties:
+                  story:
+                    $ref: '#/components/schemas/OwnedStory'
+        '400':
+          description: Story validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+  /api/v1/me/stories:
+    get:
+      summary: List stories owned by the current private account
+      operationId: listMyStories
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private owner view. No mobile number or account ID is returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [stories]
+                properties:
+                  stories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnedStory'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/moderation/stories:
+    get:
+      summary: List stories awaiting human review
+      operationId: listModerationStories
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue. Author account identifiers are not returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [stories]
+                properties:
+                  stories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnedStory'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/moderation/stories/{storyId}/decision:
+    post:
+      summary: Record an irreversible human review decision
+      operationId: decideStory
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reason]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject]
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 500
+      responses:
+        '200':
+          description: Decision recorded in the story, moderation case, and immutable audit event.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [story]
+                properties:
+                  story:
+                    $ref: '#/components/schemas/OwnedStory'
+        '400':
+          description: The decision or reason is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The story is no longer awaiting a decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: ffg_session
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    PublicClientAccount:
+      type: object
+      additionalProperties: false
+      required: [role, status]
+      properties:
+        role:
+          type: string
+          enum: [member, moderator, administrator]
+        status:
+          type: string
+          enum: [active, suspended]
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [authenticated, csrfToken]
+      properties:
+        authenticated:
+          type: boolean
+        account:
+          $ref: '#/components/schemas/PublicClientAccount'
+        csrfToken:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    StorySubmission:
+      type: object
+      additionalProperties: true
+      required: [title, board, content, responsePreference, tags, guidelinesAccepted]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        board:
+          type: string
+          enum: [academic, job, social]
+        content:
+          type: string
+          description: Must contain 150-200 combined Latin word and CJK character units.
+        responsePreference:
+          type: string
+          enum: [none, encouragement, similar, advice]
+        tags:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^[A-Za-z][A-Za-z0-9]{0,39}$'
+        guidelinesAccepted:
+          const: true
+    PublishedStory:
+      type: object
+      additionalProperties: false
+      required: [id, board, title, content, responsePreference, tags, publishedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        board:
+          type: string
+          enum: [academic, job, social]
+        title:
+          type: string
+        content:
+          type: string
+        responsePreference:
+          type: string
+          enum: [none, encouragement, similar, advice]
+        tags:
+          type: array
+          items:
+            type: string
+        publishedAt:
+          type: string
+          format: date-time
+    OwnedStory:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - board
+        - title
+        - content
+        - responsePreference
+        - visibility
+        - moderationStatus
+        - automatedReviewStatus
+        - humanReviewStatus
+        - tags
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        board:
+          type: string
+          enum: [academic, job, social]
+        title:
+          type: string
+        content:
+          type: string
+        responsePreference:
+          type: string
+          enum: [none, encouragement, similar, advice]
+        visibility:
+          const: anonymous-public
+        moderationStatus:
+          type: string
+          enum: [pending-human-review, approved, rejected, withdrawn]
+        automatedReviewStatus:
+          type: string
+          enum: [not-configured, passed, rejected, needs-human-review]
+        humanReviewStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        publishedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        decisionReason:
+          oneOf:
+            - type: string
+              minLength: 8
+              maxLength: 500
+            - type: 'null'
+        decidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+  responses:
+    AuthenticationRequired:
+      description: A valid private account session is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidPhone:
+      description: The mobile number is not a valid mainland China number.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidCode:
+      description: Code is invalid or expired; the response does not reveal account existence.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidCsrf:
+      description: The CSRF token is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ModeratorRequired:
+      description: An authenticated moderator or administrator role is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Too many attempts.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
