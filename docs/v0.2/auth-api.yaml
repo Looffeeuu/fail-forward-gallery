@@ -7,6 +7,26 @@ servers:
   - url: /
     description: Same-origin deployment
 paths:
+  /api/v1/health:
+    get:
+      summary: Check whether the HTTP service is running
+      operationId: getHealth
+      responses:
+        '200':
+          description: Lightweight liveness response with no account or content data.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, service, version]
+                properties:
+                  status:
+                    const: ok
+                  service:
+                    const: fail-forward-gallery
+                  version:
+                    const: 0.2.0
   /api/v1/auth/session:
     get:
       summary: Restore the current private session and issue a CSRF token

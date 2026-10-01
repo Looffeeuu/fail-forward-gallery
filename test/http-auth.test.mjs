@@ -62,6 +62,16 @@ test('HTTP authentication flow uses CSRF and HttpOnly session cookies', async (t
     database.close();
   });
 
+  const health = await fetch(baseUrl + '/api/v1/health');
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), {
+    status: 'ok',
+    service: 'fail-forward-gallery',
+    version: '0.2.0'
+  });
+  assert.equal(health.headers.get('cache-control'), 'no-store');
+  assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+
   const initialSession = await fetch(`${baseUrl}/api/v1/auth/session`);
   updateCookieJar(cookies, initialSession.headers);
   const initialPayload = await initialSession.json();

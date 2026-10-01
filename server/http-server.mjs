@@ -205,6 +205,15 @@ export function createHttpServer({
     const cookies = parseCookies(request.headers.cookie);
 
     try {
+      if (request.method === 'GET' && url.pathname === '/api/v1/health') {
+        sendJson(response, 200, {
+          status: 'ok',
+          service: 'fail-forward-gallery',
+          version: '0.2.0'
+        });
+        return;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/v1/auth/session') {
         const account = authService.restoreSession(cookies[SESSION_COOKIE]);
         const csrfToken = createCsrfToken();
