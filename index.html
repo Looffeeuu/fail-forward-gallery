@@ -117,9 +117,9 @@
 <!-- ==================== STORY ARCHIVE PAGE ==================== -->
 <section id="page-archive" class="page">
   <div class="page-header">
-    <span class="prototype-label" id="submit-mode-label" data-no-translate>Content submission</span>
+    <span class="prototype-label" id="archive-mode-label" data-no-translate></span>
     <h1 id="archive-title">Failure Story Archive</h1>
-    <p>This demo contains anonymised sample stories for exploring the experience. Browse, witness, and respond within each author’s chosen boundary.</p>
+    <p id="archive-mode-intro" data-no-translate></p>
   </div>
 
   <div class="archive-controls" aria-labelledby="archive-title">
@@ -194,7 +194,7 @@
 <!-- ==================== SUBMIT PAGE ==================== -->
 <section id="page-submit" class="page">
   <div class="page-header">
-    <span class="prototype-label">Prototype preview</span>
+    <span class="prototype-label" id="submit-mode-label" data-no-translate></span>
     <h1>Submit Your Failure Résumé</h1>
     <p id="submit-mode-intro" data-no-translate></p>
   </div>
@@ -333,7 +333,7 @@
         </div>
         <div>
           <h3>🛡️ Human Moderation Foundation</h3>
-          <p><span class="prototype-badge">Current V0.2 workflow</span> New stories stay private until an authorised human reviewer approves them. AI pre-screening and review-notification email are not connected yet.</p>
+          <p><span class="prototype-badge" id="about-moderation-badge" data-no-translate></span> <span id="about-moderation-copy" data-no-translate></span></p>
         </div>
         <div>
           <h3>🏛️ Pop-Up Exhibitions</h3>
@@ -389,7 +389,7 @@
 <!-- ==================== MODERATION PAGE ==================== -->
 <section id="page-moderation" class="page">
   <div class="page-header moderation-header">
-    <span class="version-badge">V0.2 · Human moderation</span>
+    <span class="version-badge" id="moderation-mode-badge" data-no-translate></span>
     <h1>Story review queue</h1>
     <p>This internal workspace is visible only to authorised reviewers. Every decision requires a reason and is recorded in an audit trail.</p>
   </div>
@@ -452,7 +452,7 @@
 <!-- ==================== ACCOUNT PAGE ==================== -->
 <section id="page-account" class="page">
   <div class="page-header account-header">
-    <span class="version-badge">V0.2 · Private account and review foundation</span>
+    <span class="version-badge" id="account-mode-badge" data-no-translate></span>
     <h1>Your account stays private. Your stories stay anonymous.</h1>
     <p>Sign in is used only to recognise your own stories, follow-ups, moderation status, and appeals.</p>
   </div>

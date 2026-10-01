@@ -1839,18 +1839,38 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
 function syncSubmissionModeUI(authState = window.FFG_AUTH?.getSnapshot()) {
   const submitButton = document.getElementById('submit-story-button');
   const tagHelp = document.getElementById('story-tags-help');
+  const archiveModeLabel = document.getElementById('archive-mode-label');
+  const archiveModeIntro = document.getElementById('archive-mode-intro');
   const modeLabel = document.getElementById('submit-mode-label');
   const modeIntro = document.getElementById('submit-mode-intro');
   const workflowBadge = document.getElementById('submission-workflow-badge');
   const workflowNote = document.getElementById('submission-workflow-note');
+  const aboutModerationBadge = document.getElementById('about-moderation-badge');
+  const aboutModerationCopy = document.getElementById('about-moderation-copy');
+  const moderationModeBadge = document.getElementById('moderation-mode-badge');
+  const accountModeBadge = document.getElementById('account-mode-badge');
   const serverMode = Boolean(window.FFG_CONTENT_API?.enabled);
   const signedIn = authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
   const useChinese = tagUiState.language === 'zh';
 
+  if (archiveModeLabel) {
+    archiveModeLabel.textContent = serverMode
+      ? (useChinese ? 'V0.2 · 匿名故事归档' : 'V0.2 · Anonymous story archive')
+      : (useChinese ? '浏览器原型' : 'Browser prototype');
+  }
+  if (archiveModeIntro) {
+    archiveModeIntro.textContent = serverMode
+      ? (useChinese
+        ? '这里展示匿名示例故事和已经人工审核通过的投稿；待审核与未通过内容不会公开。'
+        : 'This archive contains anonymous sample stories and submissions approved by a human reviewer. Pending and rejected content stays private.')
+      : (useChinese
+        ? '当前静态版本展示匿名示例故事和保存在本浏览器中的原型投稿。'
+        : 'This static version shows anonymous sample stories and prototype submissions stored in this browser.');
+  }
   if (modeLabel) {
     modeLabel.textContent = serverMode
       ? (useChinese ? 'V0.2 · 内容归属' : 'V0.2 · Content ownership')
-      : (useChinese ? '本地原型预览' : 'Local prototype preview');
+      : (useChinese ? '浏览器原型' : 'Browser prototype');
   }
   if (modeIntro) {
     modeIntro.textContent = serverMode
@@ -1890,6 +1910,30 @@ function syncSubmissionModeUI(authState = window.FFG_AUTH?.getSnapshot()) {
       : (useChinese
         ? '选择主题板块后可添加最多3个标签；内容只保存在当前浏览器。'
         : 'Choose a board, then add up to three tags. This browser-only demo stores them locally.');
+  }
+  if (aboutModerationBadge) {
+    aboutModerationBadge.textContent = serverMode
+      ? (useChinese ? 'V0.2 · 人工审核已连接' : 'V0.2 · Human review connected')
+      : (useChinese ? 'V0.2 · 开发中' : 'V0.2 · In development');
+  }
+  if (aboutModerationCopy) {
+    aboutModerationCopy.textContent = serverMode
+      ? (useChinese
+        ? '新投稿会保持私密，只有经过授权的人工审核员批准后才会匿名公开。AI 预筛查和审核通知邮件尚未接入。'
+        : 'New submissions stay private until an authorised human reviewer approves anonymous publication. AI pre-screening and review-notification email are not connected yet.')
+      : (useChinese
+        ? '当前静态页面未连接审核服务。V0.2 本地服务已经实现人工审核基础；AI 预筛查和审核通知邮件尚未接入。'
+        : 'This static page is not connected to the review service. The V0.2 local service includes the human-review foundation; AI pre-screening and review-notification email are not connected yet.');
+  }
+  if (moderationModeBadge) {
+    moderationModeBadge.textContent = serverMode
+      ? (useChinese ? 'V0.2 · 人工审核已连接' : 'V0.2 · Human review connected')
+      : (useChinese ? 'V0.2 · 审核界面预览' : 'V0.2 · Review interface preview');
+  }
+  if (accountModeBadge) {
+    accountModeBadge.textContent = serverMode
+      ? (useChinese ? 'V0.2 · 私密账户已连接' : 'V0.2 · Private account connected')
+      : (useChinese ? 'V0.2 · 账户界面预览' : 'V0.2 · Account interface preview');
   }
 }
 
