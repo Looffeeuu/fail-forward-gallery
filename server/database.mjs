@@ -385,6 +385,19 @@ export function createDatabase(databasePath) {
   const selectCommentForModeration = database.prepare(
     `SELECT ${commentFields} ${commentSource} WHERE comments.id = ?`
   );
+  const selectRecentCommentActivity = database.prepare([
+    'SELECT COUNT(*) AS count, MIN(created_at) AS oldestCreatedAt FROM comments',
+    'WHERE author_account_id = ? AND created_at > ?'
+  ].join(' '));
+  const countPendingComments = database.prepare([
+    'SELECT COUNT(*) AS count FROM comments',
+    "WHERE author_account_id = ? AND moderation_status = 'pending-human-review'"
+  ].join(' '));
+  const selectDuplicateComment = database.prepare([
+    'SELECT id FROM comments',
+    'WHERE author_account_id = ? AND story_id = ? AND body = ?',
+    "AND moderation_status IN ('pending-human-review', 'approved') LIMIT 1"
+  ].join(' '));
   const selectPublishedComments = database.prepare([
     'SELECT id, response_type AS responseType, body AS content, published_at AS publishedAt',
     "FROM comments WHERE story_id = ? AND moderation_status = 'approved'",
@@ -626,6 +639,20 @@ export function createDatabase(databasePath) {
         openModerationCase('comment', id, authorAccountId, timestamp);
       });
       return selectCommentForAccount.get(id, authorAccountId);
+    },
+
+    // Withdrawn and rejected comments still count, so deleting cannot reset the limit.
+    getRecentCommentActivity(accountId, since) {
+      const activity = selectRecentCommentActivity.get(accountId, since.toISOString());
+      return { count: Number(activity.count), oldestCreatedAt: activity.oldestCreatedAt };
+    },
+
+    countPendingComments(accountId) {
+      return Number(countPendingComments.get(accountId).count);
+    },
+
+    hasDuplicateComment({ accountId, storyId, content }) {
+      return Boolean(selectDuplicateComment.get(accountId, storyId, content));
     },
 
     listCommentsByAccount(accountId) {

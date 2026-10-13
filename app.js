@@ -1323,6 +1323,18 @@ function getResponseErrorMessage(errorCode) {
       zh: '请填写1–1000个字符的回应。',
       en: 'Write a response between 1 and 1,000 characters.'
     },
+    'comment-rate-limited': {
+      zh: '你最近发送的回应较多，请过几分钟再试。',
+      en: 'You have sent several responses recently. Please try again in a few minutes.'
+    },
+    'too-many-pending-comments': {
+      zh: '你还有多条回应在等待审核，请等审核结果出来后再发送。',
+      en: 'Several of your responses are still awaiting review. Please wait for decisions first.'
+    },
+    'duplicate-comment': {
+      zh: '你已经向这篇故事发送过相同的回应。',
+      en: 'You have already sent this response to this story.'
+    },
     'follow-up-author-only': {
       zh: '只有原匿名作者可以添加后续。',
       en: 'Only the original anonymous author can add a follow-up.'

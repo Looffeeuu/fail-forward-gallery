@@ -240,3 +240,43 @@ test('only the original author can add follow-ups and private ones skip review',
   );
   assert.equal(storyService.listMyStories(reader.id).length, 0);
 });
+
+test('comment limits stop floods, review backlogs, and duplicates', (t) => {
+  const { database, reader, publishStory } = createFixture(t);
+  const story = publishStory('advice');
+  const otherStory = publishStory('similar');
+  let currentTime = new Date('2026-10-13T04:00:00.000Z').getTime();
+  let idCounter = 0;
+  const responseService = createStoryResponseService({
+    database,
+    now: () => new Date(currentTime),
+    generateId: () => `limited-comment-${idCounter += 1}`,
+    commentLimits: { windowMs: 10 * 60 * 1000, maxPerWindow: 3, maxPending: 4 }
+  });
+  const send = (storyId, content) => responseService.createComment({
+    accountId: reader.id,
+    storyId,
+    input: { content }
+  });
+
+  send(story.id, 'First thought.');
+  assert.throws(() => send(story.id, '  First thought.  '), { code: 'duplicate-comment', status: 409 });
+  assert.equal(send(otherStory.id, 'First thought.').storyId, otherStory.id);
+
+  currentTime += 60 * 1000;
+  send(story.id, 'Second thought.');
+  assert.throws(
+    () => send(story.id, 'Third thought.'),
+    (error) => error.code === 'comment-rate-limited'
+      && error.status === 429
+      && error.retryAfterSeconds === 9 * 60
+  );
+
+  // Once the window passes, the pending backlog becomes the binding limit.
+  currentTime += 10 * 60 * 1000;
+  send(story.id, 'Third thought.');
+  assert.throws(() => send(story.id, 'Fourth thought.'), {
+    code: 'too-many-pending-comments',
+    status: 429
+  });
+});

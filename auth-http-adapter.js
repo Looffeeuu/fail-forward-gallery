@@ -35,7 +35,10 @@
     'invalid-follow-up-status',
     'invalid-visibility',
     'invalid-follow-up',
-    'invalid-follow-up-id'
+    'invalid-follow-up-id',
+    'comment-rate-limited',
+    'too-many-pending-comments',
+    'duplicate-comment'
   ]);
 
   function normaliseBaseUrl(value) {

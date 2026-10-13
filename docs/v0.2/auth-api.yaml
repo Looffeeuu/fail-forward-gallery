@@ -275,6 +275,22 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/StoryNotFound'
+        '409':
+          description: The same account already sent this text to this story (duplicate-comment).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: More than 5 comments in 10 minutes (comment-rate-limited, with Retry-After), or 10 comments already awaiting review (too-many-pending-comments).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/stories/{storyId}/follow-ups:
     post:
       summary: Add a follow-up to the current account's own published story

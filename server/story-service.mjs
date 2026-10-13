@@ -5,11 +5,12 @@ const ALLOWED_RESPONSE_PREFERENCES = new Set(['none', 'encouragement', 'similar'
 const TAG_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,39}$/;
 
 export class StoryError extends Error {
-  constructor(code, status, message) {
+  constructor(code, status, message, retryAfterSeconds = null) {
     super(message);
     this.name = 'StoryError';
     this.code = code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

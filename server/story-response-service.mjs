@@ -12,6 +12,11 @@ const FOLLOW_UP_VISIBILITIES = new Set(['anonymous-public', 'private']);
 const COMMENT_MAX_LENGTH = 1000;
 const FOLLOW_UP_MAX_LENGTH = 2000;
 const FOLLOW_UP_SUPPORT_MAX_LENGTH = 1200;
+export const DEFAULT_COMMENT_LIMITS = Object.freeze({
+  windowMs: 10 * 60 * 1000,
+  maxPerWindow: 5,
+  maxPending: 10
+});
 
 function requireAccount(accountId, message) {
   if (!accountId) throw new StoryError('authentication-required', 401, message);
@@ -72,9 +77,42 @@ function findPublishedStory(database, storyId) {
 export function createStoryResponseService({
   database,
   now = () => new Date(),
-  generateId = randomUUID
+  generateId = randomUUID,
+  commentLimits = DEFAULT_COMMENT_LIMITS
 }) {
   if (!database) throw new TypeError('Story response service database is required.');
+
+  // Comments are the only content strangers can send to an author, so they
+  // carry flood, backlog, and duplicate limits before reaching reviewers.
+  function enforceCommentLimits({ accountId, storyId, content, timestamp }) {
+    const activity = database.getRecentCommentActivity(
+      accountId,
+      new Date(timestamp.getTime() - commentLimits.windowMs)
+    );
+    if (activity.count >= commentLimits.maxPerWindow) {
+      const windowEndsAt = new Date(activity.oldestCreatedAt).getTime() + commentLimits.windowMs;
+      throw new StoryError(
+        'comment-rate-limited',
+        429,
+        'You have sent several responses recently. Please wait before sending another.',
+        Math.max(1, Math.ceil((windowEndsAt - timestamp.getTime()) / 1000))
+      );
+    }
+    if (database.countPendingComments(accountId) >= commentLimits.maxPending) {
+      throw new StoryError(
+        'too-many-pending-comments',
+        429,
+        'Several of your responses are still awaiting review. Please wait for decisions first.'
+      );
+    }
+    if (database.hasDuplicateComment({ accountId, storyId, content })) {
+      throw new StoryError(
+        'duplicate-comment',
+        409,
+        'You have already sent this response to this story.'
+      );
+    }
+  }
 
   return Object.freeze({
     createComment({ accountId, storyId, input }) {
@@ -88,14 +126,17 @@ export function createStoryResponseService({
         );
       }
 
+      const content = normaliseCommentInput(input);
+      const createdAt = now();
+      enforceCommentLimits({ accountId, storyId: story.id, content, timestamp: createdAt });
       return database.createComment({
         id: generateId(),
         storyId: story.id,
         authorAccountId: accountId,
         // The author's chosen boundary, not the commenter, decides the response type.
         responseType: story.responsePreference,
-        content: normaliseCommentInput(input),
-        createdAt: now()
+        content,
+        createdAt
       });
     },
 
