@@ -41,9 +41,9 @@ Fail Forward Gallery was created to challenge that imbalance. Instead of treatin
 | Product area | What it enables | Current state |
 | --- | --- | --- |
 | Failure Story Archive | Browse anonymous stories by thematic board, tag, response preference, and search | Working |
-| Choice-based Comments | Authors choose encouragement, similar experiences, gentle advice, or no comments | Working prototype |
+| Choice-based Comments | Authors choose encouragement, similar experiences, gentle advice, or no comments | Working; human-reviewed in the V0.2 service |
 | Advice Hub | Open card-based, context-specific guidance linked to common student setbacks | Working |
-| Follow-up System | Original anonymous authors can add an update without being pressured to present a positive outcome | Working prototype |
+| Follow-up System | Original anonymous authors can add an update without being pressured to present a positive outcome | Working; human-reviewed in the V0.2 service |
 | Bilingual Experience | Chinese-first interface with an English option | Working |
 | Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | V0.2 local service; on main |
 | Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | V0.2 local service; on main |
@@ -127,17 +127,17 @@ The project is in active implementation. The public site serves the static brows
 - Mainland China mobile-number verification flow with development-only terminal codes.
 - Private HttpOnly sessions and pseudonymised phone storage.
 - Server-backed story submission and private “My Stories” status.
-- Role-protected human-review queue, approve/reject reasons, and immutable audit events.
-- Public API access only to human-approved anonymous stories.
+- Signed-in comments that follow the author's response boundary, and author-only follow-ups that can be public or private.
+- Role-protected human-review queue for stories, comments, and follow-ups, with approve/reject reasons and immutable audit events.
+- Public API access only to human-approved anonymous content.
 
 ### Next implementation priorities
 
-1. Production SMS provider and regional PostgreSQL deployment.
-2. Server-backed comments and follow-ups using the same ownership and review model.
-3. Compliant AI-assisted risk classification with human-only publication approval.
-4. Notifications, appeals, withdrawal, reporting, and moderator wellbeing procedures.
-5. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
-6. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
+1. Notifications, appeals, withdrawal, reporting, and moderator wellbeing procedures.
+2. Compliant AI-assisted risk classification with human-only publication approval.
+3. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
+4. Production SMS provider and regional PostgreSQL deployment ahead of the pilot.
+5. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
 
 The accepted product and architecture foundation is documented in [V0.1](./docs/v0.1/); the account, content, and moderation service is documented in [V0.2](./docs/v0.2/).
 

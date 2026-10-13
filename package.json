@@ -10,6 +10,6 @@
   "scripts": {
     "start": "node server/index.mjs",
     "test": "node --test",
-    "check": "node --check app.js && node --check auth.js && node --check auth-http-adapter.js && node --check data.js && node --check i18n.js && node --check runtime-config.js && node --check server/index.mjs && node --check server/http-server.mjs && node --check server/auth-service.mjs && node --check server/story-service.mjs && node --check server/moderation-service.mjs && node --check server/database.mjs && node --check server/config.mjs && node --check server/sms-provider.mjs"
+    "check": "node --check app.js && node --check auth.js && node --check auth-http-adapter.js && node --check data.js && node --check i18n.js && node --check runtime-config.js && node --check server/index.mjs && node --check server/http-server.mjs && node --check server/auth-service.mjs && node --check server/story-service.mjs && node --check server/story-response-service.mjs && node --check server/moderation-service.mjs && node --check server/database.mjs && node --check server/config.mjs && node --check server/sms-provider.mjs"
   }
 }

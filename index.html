@@ -390,7 +390,7 @@
 <section id="page-moderation" class="page">
   <div class="page-header moderation-header">
     <span class="version-badge" id="moderation-mode-badge" data-no-translate></span>
-    <h1>Story review queue</h1>
+    <h1>Review queue</h1>
     <p>This internal workspace is visible only to authorised reviewers. Every decision requires a reason and is recorded in an audit trail.</p>
   </div>
 
@@ -398,7 +398,7 @@
     <div class="moderation-toolbar">
       <div>
         <span class="account-eyebrow">Private reviewer workspace</span>
-        <h2>Stories awaiting a human decision</h2>
+        <h2>Content awaiting a human decision</h2>
       </div>
       <button type="button" class="btn btn-secondary" id="refresh-moderation">Refresh queue</button>
     </div>
@@ -415,7 +415,7 @@
       <span class="lock-mark is-loading" aria-hidden="true"></span>
       <div>
         <h3>Loading the review queue…</h3>
-        <p>Pending stories remain private while the queue is refreshed.</p>
+        <p>Pending content remains private while the queue is refreshed.</p>
       </div>
     </div>
     <div class="locked-empty-state is-error" id="moderation-error" hidden>
@@ -428,8 +428,8 @@
     <div class="locked-empty-state" id="moderation-empty" hidden>
       <span class="lock-mark" aria-hidden="true">✓</span>
       <div>
-        <h3>No stories are waiting for review</h3>
-        <p>New submissions will appear here without public author identity.</p>
+        <h3>Nothing is waiting for review</h3>
+        <p>New stories, responses, and follow-ups will appear here without author identity.</p>
       </div>
     </div>
     <div class="moderation-list" id="moderation-list" aria-live="polite" data-no-translate hidden></div>
@@ -555,6 +555,7 @@
         </div>
       </div>
       <div class="my-story-list" id="my-stories-list" aria-live="polite" data-no-translate hidden></div>
+      <div class="my-comments" id="my-comments" aria-live="polite" data-no-translate hidden></div>
     </section>
   </div>
 

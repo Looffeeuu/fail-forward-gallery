@@ -26,7 +26,16 @@
     'invalid-story',
     'invalid-decision',
     'invalid-review-reason',
-    'review-conflict'
+    'review-conflict',
+    'story-not-found',
+    'comments-closed',
+    'invalid-comment',
+    'invalid-comment-id',
+    'follow-up-author-only',
+    'invalid-follow-up-status',
+    'invalid-visibility',
+    'invalid-follow-up',
+    'invalid-follow-up-id'
   ]);
 
   function normaliseBaseUrl(value) {
@@ -58,6 +67,76 @@
     });
   }
 
+  function optionalString(value) {
+    return value ? String(value) : null;
+  }
+
+  function sanitiseList(items, sanitise) {
+    return Object.freeze(
+      (Array.isArray(items) ? items : []).map(sanitise).filter((item) => Boolean(item?.id))
+    );
+  }
+
+  // Shared by the author and reviewer views; public payloads use the narrower
+  // sanitisers below so review notes never reach anonymous readers.
+  function sanitiseComment(comment) {
+    if (!comment || typeof comment !== 'object') return null;
+    return Object.freeze({
+      id: String(comment.id || ''),
+      storyId: String(comment.storyId || ''),
+      storyTitle: String(comment.storyTitle || ''),
+      storyContent: String(comment.storyContent || ''),
+      responseType: String(comment.responseType || ''),
+      content: String(comment.content || ''),
+      moderationStatus: String(comment.moderationStatus || ''),
+      automatedReviewStatus: String(comment.automatedReviewStatus || ''),
+      createdAt: String(comment.createdAt || ''),
+      publishedAt: optionalString(comment.publishedAt),
+      decisionReason: optionalString(comment.decisionReason),
+      decidedAt: optionalString(comment.decidedAt)
+    });
+  }
+
+  function sanitiseFollowUp(followUp) {
+    if (!followUp || typeof followUp !== 'object') return null;
+    return Object.freeze({
+      id: String(followUp.id || ''),
+      storyId: String(followUp.storyId || ''),
+      storyTitle: String(followUp.storyTitle || ''),
+      status: String(followUp.status || ''),
+      content: String(followUp.content || ''),
+      support: String(followUp.support || ''),
+      visibility: String(followUp.visibility || ''),
+      moderationStatus: String(followUp.moderationStatus || ''),
+      automatedReviewStatus: String(followUp.automatedReviewStatus || ''),
+      createdAt: String(followUp.createdAt || ''),
+      publishedAt: optionalString(followUp.publishedAt),
+      decisionReason: optionalString(followUp.decisionReason),
+      decidedAt: optionalString(followUp.decidedAt)
+    });
+  }
+
+  function sanitisePublishedComment(comment) {
+    if (!comment || typeof comment !== 'object') return null;
+    return Object.freeze({
+      id: String(comment.id || ''),
+      responseType: String(comment.responseType || ''),
+      content: String(comment.content || ''),
+      publishedAt: optionalString(comment.publishedAt)
+    });
+  }
+
+  function sanitisePublishedFollowUp(followUp) {
+    if (!followUp || typeof followUp !== 'object') return null;
+    return Object.freeze({
+      id: String(followUp.id || ''),
+      status: String(followUp.status || ''),
+      content: String(followUp.content || ''),
+      support: String(followUp.support || ''),
+      publishedAt: optionalString(followUp.publishedAt)
+    });
+  }
+
   function sanitiseStory(story) {
     if (!story || typeof story !== 'object') return null;
     return Object.freeze({
@@ -75,7 +154,8 @@
       updatedAt: String(story.updatedAt || ''),
       publishedAt: story.publishedAt ? String(story.publishedAt) : null,
       decisionReason: story.decisionReason ? String(story.decisionReason) : null,
-      decidedAt: story.decidedAt ? String(story.decidedAt) : null
+      decidedAt: story.decidedAt ? String(story.decidedAt) : null,
+      followUps: sanitiseList(story.followUps, sanitiseFollowUp)
     });
   }
 
@@ -88,7 +168,9 @@
       content: String(story.content || ''),
       responsePreference: String(story.responsePreference || ''),
       tags: Object.freeze(Array.isArray(story.tags) ? story.tags.map(String) : []),
-      publishedAt: story.publishedAt ? String(story.publishedAt) : null
+      publishedAt: story.publishedAt ? String(story.publishedAt) : null,
+      comments: sanitiseList(story.comments, sanitisePublishedComment),
+      followUps: sanitiseList(story.followUps, sanitisePublishedFollowUp)
     });
   }
 
@@ -219,6 +301,61 @@
         const story = sanitiseStory(payload.story);
         if (!story?.id) throw createAuthError('request-failed', 'The review response was incomplete.');
         return story;
+      },
+
+      async createComment(storyId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/stories/${encodeURIComponent(storyId)}/comments`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        const comment = sanitiseComment(payload.comment);
+        if (!comment?.id) throw createAuthError('request-failed', 'The response was incomplete.');
+        return comment;
+      },
+
+      async createFollowUp(storyId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/stories/${encodeURIComponent(storyId)}/follow-ups`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        const followUp = sanitiseFollowUp(payload.followUp);
+        if (!followUp?.id) throw createAuthError('request-failed', 'The follow-up response was incomplete.');
+        return followUp;
+      },
+
+      async listMyComments() {
+        const payload = await adapter.requestJson('/api/v1/me/comments', { method: 'GET' });
+        return sanitiseList(payload.comments, sanitiseComment);
+      },
+
+      async listModerationComments() {
+        const payload = await adapter.requestJson('/api/v1/moderation/comments', { method: 'GET' });
+        return sanitiseList(payload.comments, sanitiseComment);
+      },
+
+      async listModerationFollowUps() {
+        const payload = await adapter.requestJson('/api/v1/moderation/follow-ups', { method: 'GET' });
+        return sanitiseList(payload.followUps, sanitiseFollowUp);
+      },
+
+      async decideComment(commentId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/moderation/comments/${encodeURIComponent(commentId)}/decision`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        const comment = sanitiseComment(payload.comment);
+        if (!comment?.id) throw createAuthError('request-failed', 'The review response was incomplete.');
+        return comment;
+      },
+
+      async decideFollowUp(followUpId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/moderation/follow-ups/${encodeURIComponent(followUpId)}/decision`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        const followUp = sanitiseFollowUp(payload.followUp);
+        if (!followUp?.id) throw createAuthError('request-failed', 'The review response was incomplete.');
+        return followUp;
       }
     });
   }

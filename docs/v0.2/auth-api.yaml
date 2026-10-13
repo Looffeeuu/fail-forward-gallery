@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, public approved-story feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -231,6 +231,164 @@ paths:
                       $ref: '#/components/schemas/OwnedStory'
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/stories/{storyId}/comments:
+    post:
+      summary: Respond to a published story within the author's boundary
+      operationId: createComment
+      description: The response type is always the story's responsePreference. Stories with responsePreference none reject every comment. New comments stay private until a human approves them.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentSubmission'
+      responses:
+        '201':
+          description: Comment saved privately and queued for human review.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [comment]
+                properties:
+                  comment:
+                    $ref: '#/components/schemas/OwnedComment'
+        '400':
+          description: The comment is empty or longer than 1000 characters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: The author chose not to receive comments (comments-closed), or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/StoryNotFound'
+  /api/v1/stories/{storyId}/follow-ups:
+    post:
+      summary: Add a follow-up to the current account's own published story
+      operationId: createFollowUp
+      description: Only the original author can add a follow-up. Anonymous-public follow-ups enter human review; private follow-ups are visible only to the author and never enter the public feed.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowUpSubmission'
+      responses:
+        '201':
+          description: Follow-up saved privately or queued for human review.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [followUp]
+                properties:
+                  followUp:
+                    $ref: '#/components/schemas/OwnedFollowUp'
+        '400':
+          description: Follow-up validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: The current account is not the story author (follow-up-author-only), or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/StoryNotFound'
+  /api/v1/me/comments:
+    get:
+      summary: List comments written by the current private account
+      operationId: listMyComments
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private owner view with review status and reasons.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnedComment'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/moderation/comments:
+    get:
+      summary: List comments awaiting human review
+      operationId: listModerationComments
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue with story context. Author account identifiers are not returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [comments]
+                properties:
+                  comments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnedComment'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/moderation/follow-ups:
+    get:
+      summary: List public follow-ups awaiting human review
+      operationId: listModerationFollowUps
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue with story context. Author account identifiers are not returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [followUps]
+                properties:
+                  followUps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnedFollowUp'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -312,6 +470,100 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/moderation/comments/{commentId}/decision:
+    post:
+      summary: Record a human review decision for a comment
+      operationId: decideComment
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecision'
+      responses:
+        '200':
+          description: Decision recorded on the content, its moderation case, and an audit event.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [comment]
+                properties:
+                  comment:
+                    $ref: '#/components/schemas/OwnedComment'
+        '400':
+          description: The decision or reason is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The content is no longer awaiting a decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/moderation/follow-ups/{followUpId}/decision:
+    post:
+      summary: Record a human review decision for a followUp
+      operationId: decideFollowUp
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: followUpId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecision'
+      responses:
+        '200':
+          description: Decision recorded on the content, its moderation case, and an audit event.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [followUp]
+                properties:
+                  followUp:
+                    $ref: '#/components/schemas/OwnedFollowUp'
+        '400':
+          description: The decision or reason is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The content is no longer awaiting a decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     cookieAuth:
@@ -322,6 +574,12 @@ components:
     CsrfToken:
       name: X-CSRF-Token
       in: header
+      required: true
+      schema:
+        type: string
+    StoryId:
+      name: storyId
+      in: path
       required: true
       schema:
         type: string
@@ -390,7 +648,7 @@ components:
     PublishedStory:
       type: object
       additionalProperties: false
-      required: [id, board, title, content, responsePreference, tags, publishedAt]
+      required: [id, board, title, content, responsePreference, tags, publishedAt, comments, followUps]
       properties:
         id:
           type: string
@@ -412,6 +670,16 @@ components:
         publishedAt:
           type: string
           format: date-time
+        comments:
+          type: array
+          description: Human-approved comments only.
+          items:
+            $ref: '#/components/schemas/PublishedComment'
+        followUps:
+          type: array
+          description: Human-approved anonymous-public follow-ups only.
+          items:
+            $ref: '#/components/schemas/PublishedFollowUp'
     OwnedStory:
       type: object
       additionalProperties: false
@@ -479,6 +747,174 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        followUps:
+          type: array
+          description: Present in the owner view only; includes private follow-ups.
+          items:
+            $ref: '#/components/schemas/OwnedFollowUp'
+    ReviewDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        reason:
+          type: string
+          minLength: 8
+          maxLength: 500
+    CommentSubmission:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    FollowUpSubmission:
+      type: object
+      required: [status, visibility]
+      properties:
+        status:
+          type: string
+          enum: [still-difficult, no-major-change, small-steps, better-than-before, prefer-not-to-say]
+        content:
+          type: string
+          maxLength: 2000
+        support:
+          type: string
+          maxLength: 1200
+        visibility:
+          type: string
+          enum: [anonymous-public, private]
+    PublishedComment:
+      type: object
+      additionalProperties: false
+      required: [id, responseType, content, publishedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        responseType:
+          type: string
+          enum: [encouragement, similar, advice]
+        content:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+    PublishedFollowUp:
+      type: object
+      additionalProperties: false
+      required: [id, status, content, support, publishedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [still-difficult, no-major-change, small-steps, better-than-before, prefer-not-to-say]
+        content:
+          type: string
+        support:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+    OwnedComment:
+      type: object
+      description: Author and reviewer view. Reviewer queues also include storyContent and storyResponsePreference for context.
+      required: [id, storyId, storyTitle, responseType, content, moderationStatus, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        storyId:
+          type: string
+          format: uuid
+        storyTitle:
+          type: string
+        responseType:
+          type: string
+          enum: [encouragement, similar, advice]
+        content:
+          type: string
+        moderationStatus:
+          type: string
+          enum: [pending-human-review, approved, rejected, withdrawn]
+        automatedReviewStatus:
+          type: string
+          enum: [not-configured, passed, rejected, needs-human-review]
+        humanReviewStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        decisionReason:
+          oneOf:
+            - type: string
+            - type: 'null'
+        decidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    OwnedFollowUp:
+      type: object
+      description: Private follow-ups have moderationStatus private and null review fields.
+      required: [id, storyId, storyTitle, status, content, support, visibility, moderationStatus, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        storyId:
+          type: string
+          format: uuid
+        storyTitle:
+          type: string
+        status:
+          type: string
+          enum: [still-difficult, no-major-change, small-steps, better-than-before, prefer-not-to-say]
+        content:
+          type: string
+        support:
+          type: string
+        visibility:
+          type: string
+          enum: [anonymous-public, private]
+        moderationStatus:
+          type: string
+          enum: [pending-human-review, approved, rejected, private, withdrawn]
+        automatedReviewStatus:
+          type: string
+          enum: [not-configured, passed, rejected, needs-human-review]
+        humanReviewStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        decisionReason:
+          oneOf:
+            - type: string
+            - type: 'null'
+        decidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
   responses:
     AuthenticationRequired:
       description: A valid private account session is required.
@@ -506,6 +942,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ModeratorRequired:
       description: An authenticated moderator or administrator role is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    StoryNotFound:
+      description: The story does not exist or has not been approved for publication.
       content:
         application/json:
           schema:

@@ -57,6 +57,7 @@ const myStoriesState = {
   initialised: false,
   loading: false,
   stories: [],
+  comments: [],
   errorCode: null,
   requestVersion: 0
 };
@@ -70,12 +71,19 @@ const moderationState = {
   initialised: false,
   loading: false,
   loaded: false,
-  stories: [],
+  // Each entry is { contentType: 'story' | 'comment' | 'follow-up', item }.
+  items: [],
   errorCode: null,
   message: '',
-  actionStoryId: null,
+  actionContentId: null,
   requestVersion: 0
 };
+
+const MODERATION_ACTIONS = Object.freeze({
+  story: 'decideStory',
+  comment: 'decideComment',
+  'follow-up': 'decideFollowUp'
+});
 
 const followUpState = {
   phase: 'idle',
@@ -300,11 +308,49 @@ function normalisePublishedStory(story) {
     commentModeLabel: formatCommentType(story.responsePreference),
     text: String(story.content || ''),
     attribution: 'Anonymous member / 匿名成员',
-    comments: [],
-    followUps: [],
+    comments: (Array.isArray(story.comments) ? story.comments : []).map((comment) => ({
+      id: String(comment.id),
+      type: comment.responseType,
+      author: 'Anonymous',
+      text: String(comment.content || '')
+    })),
+    followUps: (Array.isArray(story.followUps) ? story.followUps : []).map((followUp) => ({
+      id: `follow-up-${followUp.id}`,
+      day: daysBetween(story.publishedAt, followUp.publishedAt),
+      status: followUp.status,
+      text: String(followUp.content || ''),
+      support: String(followUp.support || ''),
+      visibility: 'public',
+      reviewStatus: 'approved',
+      publishedAt: followUp.publishedAt,
+      source: 'server-published'
+    })),
     createdAt: story.publishedAt || '',
     source: 'server-published'
   };
+}
+
+// Follow-up cards are labelled by days since the story was published, as in the samples.
+function daysBetween(startValue, endValue) {
+  const elapsed = new Date(endValue).getTime() - new Date(startValue).getTime();
+  if (!Number.isFinite(elapsed)) return 1;
+  return Math.max(1, Math.round(elapsed / (24 * 60 * 60 * 1000)));
+}
+
+function isServerStory(story) {
+  return story?.source === 'server-published' && Boolean(window.FFG_CONTENT_API?.enabled);
+}
+
+function isSignedIn() {
+  return window.FFG_AUTH?.getSnapshot()?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
+}
+
+// The public API never says who wrote a story; ownership is known only from
+// the signed-in author's private "My stories" list.
+function isOwnedStory(story) {
+  return isServerStory(story)
+    && isSignedIn()
+    && myStoriesState.stories.some((ownedStory) => ownedStory.id === story.id);
 }
 
 function replacePublishedStories(publishedStories) {
@@ -433,11 +479,16 @@ function showPage(pageName) {
     }
   });
 
-  if (pageName === 'archive') renderArchive();
+  // Review decisions happen elsewhere, so server-backed pages refresh on each visit.
+  if (pageName === 'archive') {
+    renderArchive();
+    loadPublishedStories();
+  }
   if (pageName === 'advice') renderAdvice();
+  if (pageName === 'account' && isSignedIn()) loadMyStories();
   if (pageName === 'moderation') {
     renderModeration();
-    if (window.FFG_AUTH?.can('review-content') && !moderationState.loaded) {
+    if (window.FFG_AUTH?.can('review-content') && !moderationState.loading) {
       loadModerationStories();
     }
   }
@@ -770,6 +821,12 @@ function initModal() {
   });
 
   content?.addEventListener('click', (event) => {
+    // Page links inside the dialog (such as "Sign in to respond") leave the story.
+    if (event.target.closest('[data-page]')) {
+      closeModal();
+      return;
+    }
+
     const actionButton = event.target.closest('[data-followup-action]');
     if (!actionButton) return;
 
@@ -800,7 +857,9 @@ function initModal() {
     const followUpForm = event.target.closest('.follow-up-form');
     if (followUpForm) {
       event.preventDefault();
-      submitFollowUpForDemo(followUpForm);
+      const activeStory = findStoryById(appState.activeStoryId);
+      if (isServerStory(activeStory)) submitFollowUpToServer(followUpForm, activeStory);
+      else submitFollowUpForDemo(followUpForm);
       return;
     }
 
@@ -810,6 +869,10 @@ function initModal() {
     event.preventDefault();
     const story = findStoryById(appState.activeStoryId);
     if (!story || story.commentMode === 'none') return;
+    if (isServerStory(story)) {
+      submitCommentToServer(commentForm, story);
+      return;
+    }
 
     const textarea = commentForm.querySelector('textarea');
     const commentText = textarea?.value.trim();
@@ -910,23 +973,26 @@ function renderModalStory(story) {
         ${story.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
       </div>
     </article>
-    ${renderFollowUpInvite()}
+    ${renderFollowUpInvite(story)}
     ${renderFollowUpTimeline(story)}
     ${renderComments(story)}
   `;
   applySiteLanguage(content);
 }
 
-function renderFollowUpInvite() {
+function renderFollowUpInvite(story) {
+  const serverStory = isServerStory(story);
+  if (serverStory && !isOwnedStory(story)) return '';
+
   const copy = tagUiState.language === 'zh'
     ? {
-        badge: '原作者视图（原型）',
+        badge: serverStory ? '你的故事 · 仅你可见' : '原作者视图（原型）',
         heading: '故事仍可继续',
         body: '你的故事不必停留在这里，你可以回来分享后来发生了什么。',
         action: '添加后续'
       }
     : {
-        badge: 'Prototype author view',
+        badge: serverStory ? 'Your story · only you see this' : 'Prototype author view',
         heading: 'Your story can continue',
         body: 'Your story does not have to end here. You can return and share what happened next.',
         action: 'Add a Follow-up'
@@ -981,7 +1047,9 @@ function renderFollowUpTimeline(story) {
           <span class="timeline-dot" aria-hidden="true"></span>
           <p class="timeline-kicker">${useChinese ? '原始故事' : 'ORIGINAL STORY'}</p>
           <h4>${escapeHtml(story.title)}</h4>
-          <p class="timeline-date">${useChinese ? '发布于30天前' : 'Published 30 days ago'}</p>
+          <p class="timeline-date">${story.source === 'server-published'
+            ? `${useChinese ? '发布于' : 'Published'} ${escapeHtml(formatOwnedStoryDate(story.createdAt))}`
+            : (useChinese ? '发布于30天前' : 'Published 30 days ago')}</p>
         </article>
         ${followUps.map(renderFollowUpCard).join('')}
       </div>
@@ -1033,9 +1101,11 @@ function renderFollowUpCard(followUp) {
         </div>
       ` : ''}
       <footer>
-        <span>${escapeHtml(useChinese
-          ? followUp.publishedLabelZh || '刚刚发布 · 原型'
-          : followUp.publishedLabel || 'Published just now · Prototype')}</span>
+        <span>${escapeHtml(followUp.source === 'server-published'
+          ? `${useChinese ? '发布于' : 'Published'} ${formatOwnedStoryDate(followUp.publishedAt)}`
+          : useChinese
+            ? followUp.publishedLabelZh || '刚刚发布 · 原型'
+            : followUp.publishedLabel || 'Published just now · Prototype')}</span>
         <span>${useChinese ? '来自原匿名作者的更新' : 'Update from the original anonymous author'}</span>
       </footer>
     </article>
@@ -1048,6 +1118,7 @@ function renderFollowUpForm(story) {
 
   followUpState.phase = 'composing';
   const useChinese = tagUiState.language === 'zh';
+  const serverStory = isServerStory(story);
   const statusOptions = FOLLOW_UP_STATUS_OPTIONS.map((option) => `
     <label class="follow-up-choice">
       <input
@@ -1064,7 +1135,7 @@ function renderFollowUpForm(story) {
 
   content.innerHTML = `
     <div class="follow-up-form-view">
-      <span class="prototype-label">${useChinese ? '后续更新原型' : 'Prototype follow-up'}</span>
+      ${serverStory ? '' : `<span class="prototype-label">${useChinese ? '后续更新原型' : 'Prototype follow-up'}</span>`}
       <h2 id="modal-title" tabindex="-1">${useChinese ? '最近怎么样？' : 'How are things now?'}</h2>
       <p class="follow-up-form-intro">
         ${useChinese
@@ -1095,7 +1166,9 @@ function renderFollowUpForm(story) {
               ? '你可以分享一个微小的变化、对你有帮助的事情，或者仍然困扰你的问题。'
               : 'You may share a small change, something that helped, or something you are still struggling with.'}"
           ></textarea>
-          <p class="form-help">${useChinese ? '建议长度：50–200词。当前版本不作严格限制。' : 'Suggested length: 50–200 words. This prototype does not enforce a strict word limit.'}</p>
+          <p class="form-help">${serverStory
+            ? (useChinese ? '建议长度：50–200词，最多2000个字符。' : 'Suggested length: 50–200 words, up to 2,000 characters.')
+            : (useChinese ? '建议长度：50–200词。当前版本不作严格限制。' : 'Suggested length: 50–200 words. This prototype does not enforce a strict word limit.')}</p>
         </div>
 
         <div class="form-group">
@@ -1134,7 +1207,7 @@ function renderFollowUpForm(story) {
           </ul>
         </aside>
 
-        <details class="demo-controls">
+        ${serverStory ? '' : `<details class="demo-controls">
           <summary>${useChinese ? '原型审核状态控制' : 'Prototype moderation controls'}</summary>
           <label for="demo-moderation-scenario">${useChinese ? '模拟审核结果' : 'Simulated moderation outcome'}</label>
           <select id="demo-moderation-scenario" name="demo-moderation-scenario">
@@ -1144,7 +1217,9 @@ function renderFollowUpForm(story) {
             <option value="reject">${useChinese ? '违规或攻击性内容被拒绝' : 'Unsafe / abusive content rejected'}</option>
           </select>
           <p>${useChinese ? '这是正式审核接口接入前的原型控制项，正式平台不会向普通用户开放。' : 'This prototype control will be removed when the real moderation service is connected.'}</p>
-        </details>
+        </details>`}
+
+        <p class="follow-up-form-status" data-follow-up-status role="status" aria-live="polite"></p>
 
         <div class="follow-up-form-actions">
           <button type="button" class="btn btn-secondary" data-followup-action="back-to-story">
@@ -1189,7 +1264,7 @@ function submitFollowUpForDemo(form) {
   followUpState.moderationTimer = mockModerateFollowUp(
     followUpState.pendingFollowUp,
     (nextPhase) => {
-      if (!followUpState.pendingFollowUp || appState.activeStoryId !== story.id) return;
+      if (!followUpState.pendingFollowUp || String(appState.activeStoryId) !== String(story.id)) return;
       followUpState.phase = nextPhase;
       followUpState.pendingFollowUp.reviewStatus = nextPhase;
       followUpState.moderationTimer = null;
@@ -1197,6 +1272,80 @@ function submitFollowUpForDemo(form) {
       document.getElementById('follow-up-review-status')?.focus();
     }
   );
+}
+
+async function submitFollowUpToServer(form, story) {
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+
+  const formData = new FormData(form);
+  const status = form.querySelector('[data-follow-up-status]');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const visibility = formData.get('follow-up-visibility') === 'private' ? 'private' : 'anonymous-public';
+  submitButton.disabled = true;
+  status.textContent = tagUiState.language === 'zh' ? '正在提交……' : 'Submitting...';
+
+  try {
+    await window.FFG_CONTENT_API.createFollowUp(story.id, {
+      status: formData.get('follow-up-status'),
+      content: String(formData.get('follow-up-text') || '').trim(),
+      support: String(formData.get('follow-up-support') || '').trim(),
+      visibility
+    });
+  } catch (error) {
+    submitButton.disabled = false;
+    status.textContent = getResponseErrorMessage(error.code);
+    return;
+  }
+
+  loadMyStories();
+  if (String(appState.activeStoryId) !== String(story.id)) return;
+  followUpState.pendingFollowUp = { visibility };
+  followUpState.phase = visibility === 'private' ? 'saved-private' : 'submitted-for-review';
+  renderFollowUpReviewState(story);
+  document.getElementById('follow-up-review-status')?.focus();
+}
+
+function getResponseErrorMessage(errorCode) {
+  const useChinese = tagUiState.language === 'zh';
+  const messages = {
+    'authentication-required': {
+      zh: '登录已失效，请重新登录后再提交。',
+      en: 'Your session has ended. Sign in again before submitting.'
+    },
+    'comments-closed': {
+      zh: '作者选择不接收回应。',
+      en: 'The author chose not to receive responses.'
+    },
+    'invalid-comment': {
+      zh: '请填写1–1000个字符的回应。',
+      en: 'Write a response between 1 and 1,000 characters.'
+    },
+    'follow-up-author-only': {
+      zh: '只有原匿名作者可以添加后续。',
+      en: 'Only the original anonymous author can add a follow-up.'
+    },
+    'invalid-follow-up-status': {
+      zh: '请选择目前的情况。',
+      en: 'Choose how things are now.'
+    },
+    'invalid-follow-up': {
+      zh: '后续内容最多2000个字符，支持说明最多1200个字符。',
+      en: 'Keep the update within 2,000 characters and the support note within 1,200.'
+    },
+    'story-not-found': {
+      zh: '这篇故事目前无法回应。',
+      en: 'This story is not available for responses.'
+    },
+    'network-error': {
+      zh: '暂时无法连接服务，你的内容没有提交，请稍后重试。',
+      en: 'The service could not be reached. Nothing was submitted; please try again.'
+    }
+  };
+  return messages[errorCode]?.[useChinese ? 'zh' : 'en']
+    || (useChinese ? '暂时无法提交，请重试。' : 'This could not be submitted. Please try again.');
 }
 
 // DEMO-ONLY moderation adapter.
@@ -1258,6 +1407,22 @@ function renderFollowUpReviewState(story) {
         <p>${useChinese ? '攻击、讽刺或鼓动伤害行为的内容不会公开；系统不会把原文自动改写成“更积极”的版本。' : 'Attacks, ridicule, or encouragement of harmful behaviour are not published. The system does not rewrite the content into a more positive version.'}</p>
       </div>
     `,
+    'submitted-for-review': `
+      <div class="review-state-card is-pending">
+        <h3>${useChinese ? '已提交人工审核' : 'Submitted for human review'}</h3>
+        <p>${useChinese
+          ? '审核员批准后，这条更新会以“来自原匿名作者的更新”出现在故事下方。你可以在“我的故事”中查看审核状态。'
+          : 'Once a reviewer approves it, this update will appear under the story as an update from the original anonymous author. You can follow its status in My stories.'}</p>
+      </div>
+    `,
+    'saved-private': `
+      <div class="review-state-card is-approved">
+        <h3>${useChinese ? '已私密保存' : 'Saved privately'}</h3>
+        <p>${useChinese
+          ? '这条更新只有你能在“我的故事”中看到，不会公开。即使没有变化，也是一种真实而有效的更新。'
+          : 'Only you can see this update in My stories; it will not be published. No change is still a valid update.'}</p>
+      </div>
+    `,
     approved: `
       <div class="review-state-card is-approved">
         <h3>${draft.visibility === 'public'
@@ -1271,11 +1436,13 @@ function renderFollowUpReviewState(story) {
     `
   };
 
+  // The real service has no AI step yet, so the simulated workflow is not shown for it.
+  const serverPhase = ['submitted-for-review', 'saved-private'].includes(followUpState.phase);
   content.innerHTML = `
     <div class="follow-up-review-view">
-      <span class="prototype-label">${useChinese ? '模拟审核' : 'Simulated review'}</span>
+      ${serverPhase ? '' : `<span class="prototype-label">${useChinese ? '模拟审核' : 'Simulated review'}</span>`}
       <h2 id="modal-title">${useChinese ? '后续审核状态' : 'Follow-up review status'}</h2>
-      ${renderFollowUpWorkflow(followUpState.phase)}
+      ${serverPhase ? '' : renderFollowUpWorkflow(followUpState.phase)}
       <div id="follow-up-review-status" role="status" aria-live="polite" tabindex="-1">
         ${phaseContent[followUpState.phase] || phaseContent.checking}
       </div>
@@ -1385,6 +1552,16 @@ function renderComments(story) {
       ? '暂时还没有回应。你可以在作者选择的回应边界内留下第一条评论。'
       : 'No responses yet. You can leave the first one within the author’s chosen mode.'}</p>`;
 
+  if (isServerStory(story)) {
+    return `
+      <section class="comments-section" aria-labelledby="response-heading">
+        <h3 id="response-heading">${escapeHtml(formatCommentType(story.commentMode))}</h3>
+        <div class="comment-list">${commentItems}</div>
+        ${renderServerCommentForm(story)}
+      </section>
+    `;
+  }
+
   const responseLabel = tagUiState.language === 'zh' ? '你的回应' : 'Your response';
   const placeholder = tagUiState.language === 'zh'
     ? `请按照“${formatCommentType(story.commentMode)}”的边界友善回应……`
@@ -1414,6 +1591,70 @@ function renderComments(story) {
       </form>
     </section>
   `;
+}
+
+function renderServerCommentForm(story) {
+  const useChinese = tagUiState.language === 'zh';
+  if (!isSignedIn()) {
+    return `
+      <div class="comment-sign-in">
+        <p>${useChinese
+          ? '登录后可以回应。你的手机号不会公开，回应会以匿名身份显示，并在人工审核通过后出现。'
+          : 'Sign in to respond. Your mobile number stays private; responses appear anonymously after human review.'}</p>
+        <button type="button" class="btn btn-secondary" data-page="account">${useChinese ? '登录后回应' : 'Sign in to respond'}</button>
+      </div>
+    `;
+  }
+
+  const placeholder = useChinese
+    ? `请按照“${formatCommentType(story.commentMode)}”的边界友善回应……`
+    : `Respond with ${formatCommentType(story.commentMode).toLowerCase()}...`;
+  return `
+    <form class="comment-form" data-server-comment-form>
+      <label for="comment-text">${useChinese ? '你的回应' : 'Your response'}</label>
+      <textarea
+        id="comment-text"
+        name="comment-text"
+        rows="3"
+        maxlength="1000"
+        required
+        placeholder="${escapeHtml(placeholder)}"
+      ></textarea>
+      <button type="submit" class="btn btn-primary">${useChinese ? '提交回应' : 'Submit response'}</button>
+      <p class="comment-prototype-note" id="comment-prototype-note" data-comment-status role="status" aria-live="polite" tabindex="-1">
+        ${useChinese
+          ? '回应会匿名显示，并在人工审核通过后公开。你可以在“我的故事”中查看审核状态。'
+          : 'Responses appear anonymously after a human reviewer approves them. You can follow the status in My stories.'}
+      </p>
+    </form>
+  `;
+}
+
+async function submitCommentToServer(form, story) {
+  const textarea = form.querySelector('textarea');
+  const status = form.querySelector('[data-comment-status]');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const content = textarea?.value.trim();
+  if (!content) {
+    form.reportValidity();
+    return;
+  }
+
+  submitButton.disabled = true;
+  status.textContent = tagUiState.language === 'zh' ? '正在提交……' : 'Submitting...';
+  try {
+    await window.FFG_CONTENT_API.createComment(story.id, { content });
+    textarea.value = '';
+    status.textContent = tagUiState.language === 'zh'
+      ? '已提交人工审核。通过后会匿名显示在这里；你可以在“我的故事”中查看状态。'
+      : 'Submitted for human review. Once approved it will appear here anonymously; you can follow the status in My stories.';
+    loadMyStories();
+  } catch (error) {
+    status.textContent = getResponseErrorMessage(error.code);
+  } finally {
+    submitButton.disabled = false;
+    status.focus();
+  }
 }
 
 function renderAdvice() {
@@ -1493,11 +1734,12 @@ function initModeration() {
     event.preventDefault();
 
     const decision = event.submitter?.dataset.reviewDecision;
-    const storyId = form.dataset.storyId;
+    const contentType = form.dataset.contentType;
+    const contentId = form.dataset.contentId;
     const reasonInput = form.querySelector('[name="review-reason"]');
     const status = form.querySelector('[data-review-status]');
     const reason = String(reasonInput?.value || '').trim();
-    if (!['approve', 'reject'].includes(decision)) return;
+    if (!['approve', 'reject'].includes(decision) || !MODERATION_ACTIONS[contentType]) return;
 
     if (reason.length < 8 || reason.length > 500) {
       if (status) status.textContent = getModerationErrorMessage('invalid-review-reason');
@@ -1505,7 +1747,7 @@ function initModeration() {
       return;
     }
 
-    moderationState.actionStoryId = storyId;
+    moderationState.actionContentId = contentId;
     form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
     if (status) {
       status.textContent = tagUiState.language === 'zh'
@@ -1514,16 +1756,10 @@ function initModeration() {
     }
 
     try {
-      await window.FFG_CONTENT_API.decideStory(storyId, { decision, reason });
-      moderationState.stories = moderationState.stories.filter((story) => story.id !== storyId);
+      await window.FFG_CONTENT_API[MODERATION_ACTIONS[contentType]](contentId, { decision, reason });
+      moderationState.items = moderationState.items.filter(({ item }) => item.id !== contentId);
       moderationState.errorCode = null;
-      moderationState.message = decision === 'approve'
-        ? (tagUiState.language === 'zh'
-          ? '故事已通过人工审核，并进入匿名公开归档。'
-          : 'The story was approved by a human and added to the anonymous public archive.')
-        : (tagUiState.language === 'zh'
-          ? '故事未获发布批准，审核理由已保存给作者查看。'
-          : 'The story was not approved for publication. The reason is saved for the author.');
+      moderationState.message = getModerationDecisionMessage(contentType, decision);
       renderModeration();
       await Promise.allSettled([loadPublishedStories(), loadMyStories()]);
     } catch (error) {
@@ -1536,7 +1772,7 @@ function initModeration() {
         await loadModerationStories();
       }
     } finally {
-      moderationState.actionStoryId = null;
+      moderationState.actionContentId = null;
     }
   });
 
@@ -1550,7 +1786,7 @@ function initModeration() {
     moderationState.requestVersion += 1;
     moderationState.loading = false;
     moderationState.loaded = false;
-    moderationState.stories = [];
+    moderationState.items = [];
     moderationState.errorCode = null;
     moderationState.message = '';
     renderModeration(authState);
@@ -1572,9 +1808,18 @@ async function loadModerationStories() {
   renderModeration(authState);
 
   try {
-    const queue = await window.FFG_CONTENT_API.listModerationStories();
+    const [storyQueue, commentQueue, followUpQueue] = await Promise.all([
+      window.FFG_CONTENT_API.listModerationStories(),
+      window.FFG_CONTENT_API.listModerationComments(),
+      window.FFG_CONTENT_API.listModerationFollowUps()
+    ]);
     if (requestVersion !== moderationState.requestVersion) return;
-    moderationState.stories = [...queue];
+    // Oldest first across all content types, so nothing waits behind a busy type.
+    moderationState.items = [
+      ...storyQueue.map((item) => ({ contentType: 'story', item })),
+      ...commentQueue.map((item) => ({ contentType: 'comment', item })),
+      ...followUpQueue.map((item) => ({ contentType: 'follow-up', item }))
+    ].sort((first, second) => first.item.createdAt.localeCompare(second.item.createdAt));
     moderationState.loaded = true;
   } catch (error) {
     if (requestVersion !== moderationState.requestVersion) return;
@@ -1606,11 +1851,11 @@ function renderModeration(authState = window.FFG_AUTH?.getSnapshot()) {
     || moderationState.loading
     || Boolean(moderationState.errorCode)
     || !moderationState.loaded
-    || moderationState.stories.length > 0;
+    || moderationState.items.length > 0;
   list.hidden = !canReview
     || moderationState.loading
     || Boolean(moderationState.errorCode)
-    || moderationState.stories.length === 0;
+    || moderationState.items.length === 0;
   refresh.disabled = !canReview || moderationState.loading;
 
   const useChinese = tagUiState.language === 'zh';
@@ -1627,8 +1872,8 @@ function renderModeration(authState = window.FFG_AUTH?.getSnapshot()) {
   status.textContent = moderationState.message
     || (canReview && moderationState.loaded
       ? (useChinese
-        ? `当前有 ${moderationState.stories.length} 篇故事等待人工审核。`
-        : `${moderationState.stories.length} ${moderationState.stories.length === 1 ? 'story is' : 'stories are'} awaiting human review.`)
+        ? `当前有 ${moderationState.items.length} 项内容等待人工审核。`
+        : `${moderationState.items.length} ${moderationState.items.length === 1 ? 'item is' : 'items are'} awaiting human review.`)
       : '');
 
   if (list.hidden) {
@@ -1636,42 +1881,108 @@ function renderModeration(authState = window.FFG_AUTH?.getSnapshot()) {
     return;
   }
 
-  list.innerHTML = moderationState.stories.map((story) => {
-    const reasonId = `review-reason-${story.id}`;
-    const submitted = formatOwnedStoryDate(story.createdAt);
-    const automatedLabel = story.automatedReviewStatus === 'not-configured'
-      ? (useChinese ? 'AI 安全筛查：未配置' : 'AI safety check: not configured')
-      : (useChinese ? `AI 安全筛查：${story.automatedReviewStatus}` : `AI safety check: ${story.automatedReviewStatus}`);
-    return `
-      <article class="moderation-item">
-        <div class="moderation-item-heading">
-          <div>
-            <span class="story-board">${escapeHtml(formatBoardName(story.board))}</span>
-            <h3>${escapeHtml(story.title)}</h3>
-          </div>
-          <span class="review-status">${useChinese ? '待人工审核' : 'Pending human review'}</span>
-        </div>
-        <p class="moderation-story-body">${escapeHtml(story.content)}</p>
-        <div class="story-tags">
-          ${story.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
-        </div>
-        <dl class="my-story-meta">
-          <div><dt>${useChinese ? '回应偏好' : 'Response preference'}</dt><dd>${escapeHtml(formatCommentType(story.responsePreference))}</dd></div>
-          <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(submitted)}</dd></div>
-        </dl>
-        <p class="automated-review-state">${escapeHtml(automatedLabel)}</p>
-        <form class="moderation-decision-form" data-moderation-form data-story-id="${escapeHtml(story.id)}">
-          <label for="${escapeHtml(reasonId)}">${useChinese ? '给作者的审核理由（必填）' : 'Review reason for the author (required)'}</label>
-          <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required placeholder="${useChinese ? '清楚说明批准依据，或需要修改的隐私与规范问题。' : 'Explain the approval basis or the privacy and guideline changes needed.'}"></textarea>
-          <div class="moderation-actions">
-            <button type="submit" class="btn btn-primary" data-review-decision="approve">${useChinese ? '批准并匿名发布' : 'Approve and publish anonymously'}</button>
-            <button type="submit" class="btn btn-reject" data-review-decision="reject">${useChinese ? '拒绝发布' : 'Reject publication'}</button>
-          </div>
-          <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
-        </form>
-      </article>
+  list.innerHTML = moderationState.items.map(renderModerationItem).join('');
+}
+
+function getModerationDecisionMessage(contentType, decision) {
+  const useChinese = tagUiState.language === 'zh';
+  const messages = {
+    story: {
+      approve: ['故事已通过人工审核，并进入匿名公开归档。', 'The story was approved by a human and added to the anonymous public archive.'],
+      reject: ['故事未获发布批准，审核理由已保存给作者查看。', 'The story was not approved for publication. The reason is saved for the author.']
+    },
+    comment: {
+      approve: ['回应已通过人工审核，并匿名显示在故事下方。', 'The response was approved and now appears anonymously under the story.'],
+      reject: ['回应未获发布批准，审核理由已保存给回应者查看。', 'The response was not approved. The reason is saved for the person who wrote it.']
+    },
+    'follow-up': {
+      approve: ['后续已通过人工审核，并显示在故事时间线中。', 'The follow-up was approved and now appears on the story timeline.'],
+      reject: ['后续未获发布批准，审核理由已保存给作者查看。', 'The follow-up was not approved. The reason is saved for the author.']
+    }
+  };
+  return messages[contentType][decision][useChinese ? 0 : 1];
+}
+
+function renderModerationItem({ contentType, item }) {
+  const useChinese = tagUiState.language === 'zh';
+  const reasonId = `review-reason-${contentType}-${item.id}`;
+  const automatedLabel = item.automatedReviewStatus === 'not-configured' || !item.automatedReviewStatus
+    ? (useChinese ? 'AI 安全筛查：未配置' : 'AI safety check: not configured')
+    : (useChinese ? `AI 安全筛查：${item.automatedReviewStatus}` : `AI safety check: ${item.automatedReviewStatus}`);
+  const approveLabel = {
+    story: useChinese ? '批准并匿名发布' : 'Approve and publish anonymously',
+    comment: useChinese ? '批准并匿名显示' : 'Approve and show anonymously',
+    'follow-up': useChinese ? '批准并加入时间线' : 'Approve and add to timeline'
+  }[contentType];
+
+  let kicker;
+  let heading;
+  let body;
+  if (contentType === 'comment') {
+    kicker = `${useChinese ? '回应' : 'Response'} · ${formatCommentType(item.responseType)}`;
+    heading = `${useChinese ? '回应：' : 'On: '}${item.storyTitle}`;
+    body = `
+      <p class="moderation-story-body">${escapeHtml(item.content)}</p>
+      <details class="moderation-context">
+        <summary>${useChinese ? '查看被回应的故事' : 'Show the story being answered'}</summary>
+        <p>${escapeHtml(item.storyContent)}</p>
+      </details>
     `;
-  }).join('');
+  } else if (contentType === 'follow-up') {
+    const status = getFollowUpStatus(item.status);
+    kicker = useChinese ? '原作者后续' : 'Author follow-up';
+    heading = `${useChinese ? '后续：' : 'Follow-up to: '}${item.storyTitle}`;
+    body = `
+      <p class="follow-up-status"><span>${escapeHtml(useChinese ? status.labelZh : status.label)}</span></p>
+      ${item.content
+        ? `<p class="moderation-story-body">${escapeHtml(item.content)}</p>`
+        : `<p class="follow-up-no-details">${useChinese ? '未补充更多内容。' : 'No additional details shared.'}</p>`}
+      ${item.support ? `
+        <div class="follow-up-support">
+          <strong>${useChinese ? '帮助与仍需的支持' : 'What helped or is still needed'}</strong>
+          <p>${escapeHtml(item.support)}</p>
+        </div>
+      ` : ''}
+    `;
+  } else {
+    kicker = formatBoardName(item.board);
+    heading = item.title;
+    body = `
+      <p class="moderation-story-body">${escapeHtml(item.content)}</p>
+      <div class="story-tags">
+        ${item.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
+      </div>
+    `;
+  }
+
+  return `
+    <article class="moderation-item">
+      <div class="moderation-item-heading">
+        <div>
+          <span class="story-board">${escapeHtml(kicker)}</span>
+          <h3>${escapeHtml(heading)}</h3>
+        </div>
+        <span class="review-status">${useChinese ? '待人工审核' : 'Pending human review'}</span>
+      </div>
+      ${body}
+      <dl class="my-story-meta">
+        ${contentType === 'story'
+          ? `<div><dt>${useChinese ? '回应偏好' : 'Response preference'}</dt><dd>${escapeHtml(formatCommentType(item.responsePreference))}</dd></div>`
+          : ''}
+        <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(formatOwnedStoryDate(item.createdAt))}</dd></div>
+      </dl>
+      <p class="automated-review-state">${escapeHtml(automatedLabel)}</p>
+      <form class="moderation-decision-form" data-moderation-form data-content-type="${escapeHtml(contentType)}" data-content-id="${escapeHtml(item.id)}">
+        <label for="${escapeHtml(reasonId)}">${useChinese ? '给作者的审核理由（必填）' : 'Review reason for the author (required)'}</label>
+        <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required placeholder="${useChinese ? '清楚说明批准依据，或需要修改的隐私与规范问题。' : 'Explain the approval basis or the privacy and guideline changes needed.'}"></textarea>
+        <div class="moderation-actions">
+          <button type="submit" class="btn btn-primary" data-review-decision="approve">${approveLabel}</button>
+          <button type="submit" class="btn btn-reject" data-review-decision="reject">${useChinese ? '拒绝发布' : 'Reject publication'}</button>
+        </div>
+        <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
+      </form>
+    </article>
+  `;
 }
 
 function initMyStories() {
@@ -1692,6 +2003,7 @@ function initMyStories() {
     myStoriesState.requestVersion += 1;
     myStoriesState.loading = false;
     myStoriesState.stories = [];
+    myStoriesState.comments = [];
     myStoriesState.errorCode = null;
     renderMyStories(authState);
   });
@@ -1714,9 +2026,13 @@ async function loadMyStories() {
   renderMyStories(authState);
 
   try {
-    const ownedStories = await window.FFG_CONTENT_API.listMyStories();
+    const [ownedStories, ownComments] = await Promise.all([
+      window.FFG_CONTENT_API.listMyStories(),
+      window.FFG_CONTENT_API.listMyComments()
+    ]);
     if (requestVersion !== myStoriesState.requestVersion) return;
     myStoriesState.stories = [...ownedStories];
+    myStoriesState.comments = [...ownComments];
   } catch (error) {
     if (requestVersion !== myStoriesState.requestVersion) return;
     myStoriesState.errorCode = error.code || 'request-failed';
@@ -1738,6 +2054,88 @@ function formatOwnedStoryDate(value) {
     tagUiState.language === 'zh' ? 'zh-CN' : 'en',
     { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
   ).format(date);
+}
+
+function getReviewStatusLabel(moderationStatus) {
+  const useChinese = tagUiState.language === 'zh';
+  const labels = {
+    approved: { zh: '已通过并发布', en: 'Approved and published' },
+    rejected: { zh: '审核未通过', en: 'Not approved' },
+    withdrawn: { zh: '已撤回', en: 'Withdrawn' },
+    private: { zh: '仅自己可见', en: 'Private to you' },
+    'pending-human-review': { zh: '待人工审核', en: 'Pending human review' }
+  };
+  const label = labels[moderationStatus] || labels['pending-human-review'];
+  return useChinese ? label.zh : label.en;
+}
+
+function renderReviewNote(item) {
+  if (!item.decisionReason) return '';
+  const useChinese = tagUiState.language === 'zh';
+  return `
+    <div class="review-reason">
+      <strong>${useChinese ? '人工审核说明' : 'Human review note'}</strong>
+      <p>${escapeHtml(item.decisionReason)}</p>
+      ${item.decidedAt ? `<small>${escapeHtml(formatOwnedStoryDate(item.decidedAt))}</small>` : ''}
+    </div>
+  `;
+}
+
+function renderOwnedFollowUps(followUps) {
+  if (!followUps?.length) return '';
+  const useChinese = tagUiState.language === 'zh';
+  return `
+    <div class="owned-follow-ups">
+      <strong>${useChinese ? '我的后续' : 'My follow-ups'}</strong>
+      ${followUps.map((followUp) => {
+        const status = getFollowUpStatus(followUp.status);
+        return `
+          <article class="owned-follow-up">
+            <div class="owned-follow-up-heading">
+              <span>${escapeHtml(useChinese ? status.labelZh : status.label)}</span>
+              <span class="review-status review-status--${escapeHtml(followUp.moderationStatus)}">${escapeHtml(getReviewStatusLabel(followUp.moderationStatus))}</span>
+            </div>
+            ${followUp.content ? `<p>${escapeHtml(truncateText(followUp.content, 200))}</p>` : ''}
+            <small>${escapeHtml(formatOwnedStoryDate(followUp.createdAt))}</small>
+            ${renderReviewNote(followUp)}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderMyComments(signedIn) {
+  const container = document.getElementById('my-comments');
+  if (!container) return;
+
+  container.hidden = !signedIn
+    || myStoriesState.loading
+    || Boolean(myStoriesState.errorCode)
+    || myStoriesState.comments.length === 0;
+  if (container.hidden) {
+    container.replaceChildren();
+    return;
+  }
+
+  const useChinese = tagUiState.language === 'zh';
+  container.innerHTML = `
+    <h3>${useChinese ? '我的回应' : 'My responses'}</h3>
+    ${myStoriesState.comments.map((comment) => `
+      <article class="my-comment-item">
+        <div class="my-story-heading">
+          <div>
+            <span class="comment-type">${escapeHtml(formatCommentType(comment.responseType))}</span>
+            <p class="my-comment-story">${useChinese ? '回应：' : 'On: '}${escapeHtml(comment.storyTitle)}</p>
+          </div>
+          <span class="review-status review-status--${escapeHtml(comment.moderationStatus)}">${escapeHtml(getReviewStatusLabel(comment.moderationStatus))}</span>
+        </div>
+        <p class="my-story-excerpt">${escapeHtml(truncateText(comment.content, 260))}</p>
+        <small>${escapeHtml(formatOwnedStoryDate(comment.createdAt))}</small>
+        ${renderReviewNote(comment)}
+      </article>
+    `).join('')}
+  `;
 }
 
 function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
@@ -1769,6 +2167,7 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
     ? '你的公开匿名状态不受影响，请稍后重试。'
     : 'Your public identity is not affected. Please try again.';
   error.querySelector('button').textContent = useChinese ? '重试' : 'Try again';
+  renderMyComments(signedIn);
 
   if (list.hidden) {
     list.replaceChildren();
@@ -1776,13 +2175,7 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
   }
 
   list.innerHTML = myStoriesState.stories.map((story) => {
-    const statusLabel = story.moderationStatus === 'approved'
-      ? (useChinese ? '已通过并发布' : 'Approved and published')
-      : story.moderationStatus === 'rejected'
-        ? (useChinese ? '审核未通过' : 'Not approved')
-        : story.moderationStatus === 'withdrawn'
-          ? (useChinese ? '已撤回' : 'Withdrawn')
-          : (useChinese ? '待人工审核' : 'Pending human review');
+    const statusLabel = getReviewStatusLabel(story.moderationStatus);
     const moderationNote = story.moderationStatus === 'pending-human-review'
       ? story.automatedReviewStatus === 'not-configured'
         ? (useChinese
@@ -1800,17 +2193,6 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
             ? '人工审核已经完成，这篇故事目前不会公开。'
             : 'Human review is complete and this story is not public.')
           : (useChinese ? '这里显示的是与你的私密账户关联的审核记录。' : 'This review record is linked only to your private account.');
-    const decisionReason = story.decisionReason
-      ? `
-        <div class="review-reason">
-          <strong>${useChinese ? '人工审核说明' : 'Human review note'}</strong>
-          <p>${escapeHtml(story.decisionReason)}</p>
-          ${story.decidedAt
-            ? `<small>${escapeHtml(formatOwnedStoryDate(story.decidedAt))}</small>`
-            : ''}
-        </div>
-      `
-      : '';
 
     return `
       <article class="my-story-item">
@@ -1830,7 +2212,8 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
           <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(formatOwnedStoryDate(story.createdAt))}</dd></div>
         </dl>
         <p class="moderation-note">${escapeHtml(moderationNote)}</p>
-        ${decisionReason}
+        ${renderReviewNote(story)}
+        ${renderOwnedFollowUps(story.followUps)}
       </article>
     `;
   }).join('');

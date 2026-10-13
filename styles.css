@@ -2042,6 +2042,66 @@ body.modal-open { overflow: hidden; }
 .review-reason p { margin-top: 0.3rem; color: var(--color-text); }
 .review-reason small { display: block; margin-top: 0.35rem; color: var(--color-text-muted); }
 
+.review-status--private {
+  border-color: #9b8da8;
+  background: #f1edf4;
+  color: #4d3f5c;
+}
+.owned-follow-ups {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border);
+}
+.owned-follow-ups > strong { color: var(--color-primary-dark); font-size: 0.9rem; }
+.owned-follow-up {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+.owned-follow-up-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  font-weight: 700;
+}
+.owned-follow-up p { margin-top: 0.45rem; color: var(--color-text-muted); }
+.owned-follow-up small,
+.my-comment-item small { display: block; margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.8rem; }
+.my-comments {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.my-comments h3 { color: var(--color-primary-dark); }
+.my-comment-item {
+  padding: clamp(1rem, 2.5vw, 1.4rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+}
+.my-comment-story { margin-top: 0.3rem; font-weight: 700; color: var(--color-text); }
+.comment-sign-in {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  margin-top: 1rem;
+  color: var(--color-text-muted);
+}
+.follow-up-form-status:empty { display: none; }
+.follow-up-form-status { color: var(--color-text-muted); font-size: 0.9rem; }
+.moderation-context {
+  margin-top: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+.moderation-context summary { cursor: pointer; color: var(--color-primary-dark); font-weight: 700; }
+.moderation-context p { margin-top: 0.5rem; line-height: 1.7; }
+
 @media (max-width: 640px) {
   .moderation-toolbar,
   .moderation-item-heading {

@@ -87,7 +87,10 @@ export function createStoryService({ database, now = () => new Date(), generateI
       if (!accountId) {
         throw new StoryError('authentication-required', 401, 'Sign in to view your stories.');
       }
-      return database.listStoriesByAccount(accountId);
+      return database.listStoriesByAccount(accountId).map((story) => Object.freeze({
+        ...story,
+        followUps: database.listFollowUpsForStoryOwner(story.id, accountId)
+      }));
     },
 
     listPublishedStories(limit = 100) {
@@ -98,7 +101,20 @@ export function createStoryService({ database, now = () => new Date(), generateI
         content: story.content,
         responsePreference: story.responsePreference,
         tags: Object.freeze([...story.tags]),
-        publishedAt: story.publishedAt
+        publishedAt: story.publishedAt,
+        comments: Object.freeze(story.comments.map((comment) => Object.freeze({
+          id: comment.id,
+          responseType: comment.responseType,
+          content: comment.content,
+          publishedAt: comment.publishedAt
+        }))),
+        followUps: Object.freeze(story.followUps.map((followUp) => Object.freeze({
+          id: followUp.id,
+          status: followUp.status,
+          content: followUp.content,
+          support: followUp.support,
+          publishedAt: followUp.publishedAt
+        })))
       }));
     }
   });

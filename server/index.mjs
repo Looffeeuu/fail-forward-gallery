@@ -4,6 +4,7 @@ import { createDatabase } from './database.mjs';
 import { createHttpServer } from './http-server.mjs';
 import { createModerationService } from './moderation-service.mjs';
 import { createSmsProvider } from './sms-provider.mjs';
+import { createStoryResponseService } from './story-response-service.mjs';
 import { createStoryService } from './story-service.mjs';
 
 const database = createDatabase(config.databasePath);
@@ -21,10 +22,12 @@ const authService = createAuthService({
   developmentModeratorPhone: config.developmentModeratorPhone
 });
 const storyService = createStoryService({ database });
+const storyResponseService = createStoryResponseService({ database });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
   storyService,
+  storyResponseService,
   moderationService,
   config
 });

@@ -5,6 +5,7 @@ import { createAuthService } from '../server/auth-service.mjs';
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
+import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
 
 function updateCookieJar(jar, headers) {
@@ -96,6 +97,7 @@ test('moderation API enforces reviewer access and publishes only approved storie
   const server = createHttpServer({
     authService,
     storyService,
+    storyResponseService: createStoryResponseService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

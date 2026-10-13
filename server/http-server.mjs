@@ -188,11 +188,12 @@ async function serveStatic(request, response, { projectRoot, environment }) {
 export function createHttpServer({
   authService,
   storyService,
+  storyResponseService,
   moderationService,
   config,
   logger = console
 }) {
-  if (!authService || !storyService || !moderationService || !config) {
+  if (!authService || !storyService || !storyResponseService || !moderationService || !config) {
     throw new TypeError('HTTP server dependencies are incomplete.');
   }
 
@@ -304,6 +305,61 @@ export function createHttpServer({
         return;
       }
 
+      const storyResponseMatch = url.pathname.match(
+        /^\/api\/v1\/stories\/([^/]+)\/(comments|follow-ups)$/
+      );
+      if (request.method === 'POST' && storyResponseMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const isComment = storyResponseMatch[2] === 'comments';
+        if (!session) {
+          throw new StoryError(
+            'authentication-required',
+            401,
+            isComment ? 'Sign in before responding to a story.' : 'Sign in before adding a follow-up.'
+          );
+        }
+        const body = await readJson(request);
+        const responseInput = {
+          accountId: session.accountId,
+          storyId: decodeURIComponent(storyResponseMatch[1]),
+          input: body
+        };
+        if (isComment) {
+          sendJson(response, 201, { comment: storyResponseService.createComment(responseInput) });
+        } else {
+          sendJson(response, 201, { followUp: storyResponseService.createFollowUp(responseInput) });
+        }
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/me/comments') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        if (!session) {
+          throw new StoryError('authentication-required', 401, 'Sign in to view your responses.');
+        }
+        sendJson(response, 200, {
+          comments: storyResponseService.listMyComments(session.accountId)
+        });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/moderation/comments') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, {
+          comments: moderationService.listPendingComments(session)
+        });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/moderation/follow-ups') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, {
+          followUps: moderationService.listPendingFollowUps(session)
+        });
+        return;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/v1/moderation/stories') {
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
         sendJson(response, 200, {
@@ -313,18 +369,27 @@ export function createHttpServer({
       }
 
       const decisionMatch = url.pathname.match(
-        /^\/api\/v1\/moderation\/stories\/([^/]+)\/decision$/
+        /^\/api\/v1\/moderation\/(stories|comments|follow-ups)\/([^/]+)\/decision$/
       );
       if (request.method === 'POST' && decisionMatch) {
         requireCsrf(request, cookies);
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
         const body = await readJson(request);
-        const story = moderationService.decideStory({
-          session,
-          storyId: decodeURIComponent(decisionMatch[1]),
-          input: body
-        });
-        sendJson(response, 200, { story });
+        const contentId = decodeURIComponent(decisionMatch[2]);
+        if (decisionMatch[1] === 'stories') {
+          const story = moderationService.decideStory({ session, storyId: contentId, input: body });
+          sendJson(response, 200, { story });
+        } else if (decisionMatch[1] === 'comments') {
+          const comment = moderationService.decideComment({ session, commentId: contentId, input: body });
+          sendJson(response, 200, { comment });
+        } else {
+          const followUp = moderationService.decideFollowUp({
+            session,
+            followUpId: contentId,
+            input: body
+          });
+          sendJson(response, 200, { followUp });
+        }
         return;
       }
 
