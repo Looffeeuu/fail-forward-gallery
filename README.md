@@ -14,7 +14,7 @@ Developed through a five-country international team during NUS AUS 2026, with En
 
 University students are constantly exposed to stories of success, while failure is often hidden. Fail Forward Gallery creates a safer space for students to share setbacks, learn from others, and access practical support.
 
-> **Current status:** active six-month implementation following the AUS-funded concept stage. The public main branch contains the working bilingual browser experience; the account, ownership, and human-moderation foundation is implemented and tested locally as V0.2 work in progress.
+> **Current status:** active six-month implementation following the AUS-funded concept stage. The public site runs the working bilingual browser experience; the main branch also contains the V0.2 account, ownership, and human-moderation service, which runs locally with development-only verification codes.
 
 ## About
 
@@ -45,8 +45,8 @@ Fail Forward Gallery was created to challenge that imbalance. Instead of treatin
 | Advice Hub | Open card-based, context-specific guidance linked to common student setbacks | Working |
 | Follow-up System | Original anonymous authors can add an update without being pressured to present a positive outcome | Working prototype |
 | Bilingual Experience | Chinese-first interface with an English option | Working |
-| Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | V0.2 work in progress; not yet on main |
-| Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | V0.2 work in progress; not yet on main |
+| Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | V0.2 local service; on main |
+| Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | V0.2 local service; on main |
 | AI-assisted Safety Screening | Risk classification before human review | Planned; no production AI service connected |
 | Ranking & Discovery | View-, response-, and editor-informed discovery with anti-abuse safeguards | Planned |
 | Pop-up Exhibition | Physical story gallery and facilitated reflection activities | Planned pilot component |
@@ -111,7 +111,7 @@ The emotional experience of failure can cross borders, but its causes and conseq
 
 ## Current Status
 
-The project is in active V0.2 implementation. The public <code>main</code> branch currently contains the accepted V0.1 browser experience. The V0.2 account and moderation layer is implemented and tested in the current local development branch and will be published after acceptance and a history-safe release.
+The project is in active implementation. The public site serves the static browser experience, and the <code>main</code> branch also contains the V0.2 Node.js service for accounts, story ownership, and human moderation. The service runs locally with development-only verification codes; production SMS and hosting are not connected yet.
 
 ### Available in the browser experience
 
@@ -139,16 +139,16 @@ The project is in active V0.2 implementation. The public <code>main</code> branc
 5. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
 6. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
 
-The accepted product and architecture foundation is documented in [V0.1](./docs/v0.1/). V0.2 documentation will be published with the corresponding service code.
+The accepted product and architecture foundation is documented in [V0.1](./docs/v0.1/); the account, content, and moderation service is documented in [V0.2](./docs/v0.2/).
 
 ## Tech Stack
 
 The stack is intentionally small so the team can inspect and improve the full product:
 
 - **Frontend:** semantic HTML, CSS, and vanilla JavaScript
-- **Public main branch:** static HTML, CSS, and vanilla JavaScript
-- **V0.2 development:** Node.js and SQLite
-- **Product structure:** bilingual interface and a shared story/tag model; modular authentication and moderation adapters are in V0.2 development
+- **Public site:** static HTML, CSS, and vanilla JavaScript
+- **V0.2 service:** Node.js and SQLite
+- **Product structure:** bilingual interface, a shared story/tag model, and modular authentication and moderation adapters
 - **Testing:** Node.js syntax checks and built-in test runner
 
 No React, Vue, frontend build tool, or third-party UI framework is required.
@@ -162,7 +162,15 @@ python3 -m http.server 4173
 
 Open <code>http://127.0.0.1:4173</code>.
 
-This runs the accepted static browser experience on the public <code>main</code> branch. V0.2 Node.js service instructions will be published together with the accepted V0.2 source and tests. Development verification codes are terminal-only simulations; they are not real SMS messages.
+This runs the static browser experience, the same mode as the public site.
+
+To run the V0.2 service with accounts, story submission, and the review queue:
+
+~~~bash
+npm start
+~~~
+
+Open <code>http://127.0.0.1:4173</code>. Development verification codes are printed only in the server terminal; they are not real SMS messages. See [V0.2](./docs/v0.2/) for the moderator setup and tests.
 
 </details>
 
