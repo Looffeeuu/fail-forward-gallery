@@ -3,44 +3,77 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-// V0.2 created moderation_cases with a story-only CHECK and a foreign key to
-// stories. SQLite cannot alter either in place, so the table is rebuilt once.
-function migrateStoryOnlyModerationCases(database) {
-  const table = database.prepare(
-    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'moderation_cases'"
-  ).get();
-  if (!table || table.sql.includes("'comment'")) return;
+// Table names come only from this fixed map, never from request input.
+const CONTENT_TABLES = Object.freeze({
+  story: 'stories',
+  comment: 'comments',
+  follow_up: 'follow_ups'
+});
 
+function prepareForEachContentType(database, buildSql) {
+  return Object.fromEntries(
+    Object.entries(CONTENT_TABLES).map(([contentType, table]) => [
+      contentType,
+      database.prepare(buildSql(table))
+    ])
+  );
+}
+
+// Shared by fresh databases and migrations, so both always build the same table.
+function moderationCasesTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
+      content_id TEXT NOT NULL,
+      automated_status TEXT NOT NULL DEFAULT 'not-configured'
+        CHECK (automated_status IN ('not-configured', 'passed', 'rejected', 'needs-human-review')),
+      human_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (human_status IN ('pending', 'approved', 'rejected')),
+      decision_reason TEXT,
+      decided_at TEXT,
+      decided_by_account_id TEXT REFERENCES accounts(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `;
+}
+
+function moderationEventsTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      moderation_case_id TEXT NOT NULL REFERENCES moderation_cases(id) ON DELETE CASCADE,
+      actor_account_id TEXT REFERENCES accounts(id),
+      action TEXT NOT NULL CHECK (action IN (
+        'submitted', 'approved', 'rejected', 'withdrawn',
+        'appealed', 'appeal-upheld', 'appeal-overturned'
+      )),
+      reason TEXT,
+      created_at TEXT NOT NULL
+    )
+  `;
+}
+
+// SQLite cannot change a CHECK constraint or foreign key in place, so tables
+// created by older versions are copied into a new definition once.
+function rebuildTableIfOutdated(database, { name, isCurrent, createSql, columns, indexSql }) {
+  const table = database.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?"
+  ).get(name);
+  if (!table || isCurrent(table.sql)) return;
+
+  const migratedName = `${name}_migrated`;
+  const columnList = columns.join(', ');
   database.exec('PRAGMA foreign_keys = OFF');
   database.exec('BEGIN IMMEDIATE');
   try {
     database.exec(`
-      CREATE TABLE moderation_cases_migrated (
-        id TEXT PRIMARY KEY,
-        content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
-        content_id TEXT NOT NULL,
-        automated_status TEXT NOT NULL DEFAULT 'not-configured'
-          CHECK (automated_status IN ('not-configured', 'passed', 'rejected', 'needs-human-review')),
-        human_status TEXT NOT NULL DEFAULT 'pending'
-          CHECK (human_status IN ('pending', 'approved', 'rejected')),
-        decision_reason TEXT,
-        decided_at TEXT,
-        decided_by_account_id TEXT REFERENCES accounts(id),
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      INSERT INTO moderation_cases_migrated (
-        id, content_type, content_id, automated_status, human_status,
-        decision_reason, decided_at, decided_by_account_id, created_at, updated_at
-      )
-      SELECT
-        id, content_type, content_id, automated_status, human_status,
-        decision_reason, decided_at, decided_by_account_id, created_at, updated_at
-      FROM moderation_cases;
-      DROP TABLE moderation_cases;
-      ALTER TABLE moderation_cases_migrated RENAME TO moderation_cases;
-      CREATE INDEX IF NOT EXISTS moderation_content_index
-        ON moderation_cases(content_type, content_id);
+      ${createSql(migratedName)};
+      INSERT INTO ${migratedName} (${columnList}) SELECT ${columnList} FROM ${name};
+      DROP TABLE ${name};
+      ALTER TABLE ${migratedName} RENAME TO ${name};
+      ${indexSql};
     `);
     database.exec('COMMIT');
   } catch (error) {
@@ -49,6 +82,30 @@ function migrateStoryOnlyModerationCases(database) {
   } finally {
     database.exec('PRAGMA foreign_keys = ON');
   }
+}
+
+function migrateModerationTables(database) {
+  // V0.2 limited moderation cases to stories and tied them to the stories table.
+  rebuildTableIfOutdated(database, {
+    name: 'moderation_cases',
+    isCurrent: (sql) => sql.includes("'comment'"),
+    createSql: moderationCasesTableSql,
+    columns: [
+      'id', 'content_type', 'content_id', 'automated_status', 'human_status',
+      'decision_reason', 'decided_at', 'decided_by_account_id', 'created_at', 'updated_at'
+    ],
+    indexSql: `CREATE INDEX IF NOT EXISTS moderation_content_index
+      ON moderation_cases(content_type, content_id)`
+  });
+  // Earlier versions only recorded submissions and first decisions.
+  rebuildTableIfOutdated(database, {
+    name: 'moderation_events',
+    isCurrent: (sql) => sql.includes("'withdrawn'"),
+    createSql: moderationEventsTableSql,
+    columns: ['id', 'moderation_case_id', 'actor_account_id', 'action', 'reason', 'created_at'],
+    indexSql: `CREATE INDEX IF NOT EXISTS moderation_events_case_index
+      ON moderation_events(moderation_case_id, created_at)`
+  });
 }
 
 export function createDatabase(databasePath) {
@@ -108,27 +165,23 @@ export function createDatabase(databasePath) {
       PRIMARY KEY (story_id, tag_value)
     );
 
-    CREATE TABLE IF NOT EXISTS moderation_cases (
-      id TEXT PRIMARY KEY,
-      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
-      content_id TEXT NOT NULL,
-      automated_status TEXT NOT NULL DEFAULT 'not-configured'
-        CHECK (automated_status IN ('not-configured', 'passed', 'rejected', 'needs-human-review')),
-      human_status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (human_status IN ('pending', 'approved', 'rejected')),
-      decision_reason TEXT,
-      decided_at TEXT,
-      decided_by_account_id TEXT REFERENCES accounts(id),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
+    ${moderationCasesTableSql('moderation_cases')};
 
-    CREATE TABLE IF NOT EXISTS moderation_events (
+    ${moderationEventsTableSql('moderation_events')};
+
+    CREATE TABLE IF NOT EXISTS appeals (
       id TEXT PRIMARY KEY,
-      moderation_case_id TEXT NOT NULL REFERENCES moderation_cases(id) ON DELETE CASCADE,
-      actor_account_id TEXT REFERENCES accounts(id),
-      action TEXT NOT NULL CHECK (action IN ('submitted', 'approved', 'rejected')),
-      reason TEXT,
+      moderation_case_id TEXT NOT NULL UNIQUE REFERENCES moderation_cases(id) ON DELETE CASCADE,
+      appellant_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      reason_code TEXT NOT NULL CHECK (reason_code IN (
+        'context-misunderstood', 'no-identifying-details', 'within-guidelines', 'other'
+      )),
+      explanation TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'upheld', 'overturned')),
+      decision_reason TEXT,
+      decided_by_account_id TEXT REFERENCES accounts(id),
+      decided_at TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -194,7 +247,7 @@ export function createDatabase(databasePath) {
     );
   }
 
-  migrateStoryOnlyModerationCases(database);
+  migrateModerationTables(database);
 
   const insertAccount = database.prepare(`
     INSERT OR IGNORE INTO accounts
@@ -249,34 +302,34 @@ export function createDatabase(databasePath) {
     'id, moderation_case_id, actor_account_id, action, reason, created_at',
     ') VALUES (?, ?, ?, ?, ?, ?)'
   ].join(' '));
-  const selectStoryForAccount = database.prepare([
-    'SELECT stories.id AS id, stories.board AS board, stories.title AS title,',
+  // Owner and reviewer views carry the review decision and any appeal of it.
+  const appealFields = [
+    'appeals.id AS appealId, appeals.status AS appealStatus,',
+    'appeals.reason_code AS appealReasonCode, appeals.explanation AS appealExplanation,',
+    'appeals.decision_reason AS appealDecisionReason, appeals.decided_at AS appealDecidedAt'
+  ].join(' ');
+  const appealSource = 'LEFT JOIN appeals ON appeals.moderation_case_id = moderation_cases.id';
+  const storyFields = [
+    'stories.id AS id, stories.board AS board, stories.title AS title,',
     'stories.body AS content, stories.response_preference AS responsePreference,',
-    'stories.visibility AS visibility,',
-    'stories.moderation_status AS moderationStatus,',
+    'stories.visibility AS visibility, stories.moderation_status AS moderationStatus,',
     'moderation_cases.automated_status AS automatedReviewStatus,',
     'moderation_cases.human_status AS humanReviewStatus,',
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
     'stories.created_at AS createdAt, stories.updated_at AS updatedAt,',
-    'stories.published_at AS publishedAt',
+    `stories.published_at AS publishedAt, ${appealFields}`
+  ].join(' ');
+  const storySource = [
     'FROM stories JOIN moderation_cases',
     "ON moderation_cases.content_type = 'story' AND moderation_cases.content_id = stories.id",
-    'WHERE stories.id = ? AND stories.author_account_id = ?'
-  ].join(' '));
+    appealSource
+  ].join(' ');
+  const selectStoryForAccount = database.prepare(
+    `SELECT ${storyFields} ${storySource} WHERE stories.id = ? AND stories.author_account_id = ?`
+  );
   const selectStoriesForAccount = database.prepare([
-    'SELECT stories.id AS id, stories.board AS board, stories.title AS title,',
-    'stories.body AS content, stories.response_preference AS responsePreference,',
-    'stories.visibility AS visibility,',
-    'stories.moderation_status AS moderationStatus,',
-    'moderation_cases.automated_status AS automatedReviewStatus,',
-    'moderation_cases.human_status AS humanReviewStatus,',
-    'moderation_cases.decision_reason AS decisionReason,',
-    'moderation_cases.decided_at AS decidedAt,',
-    'stories.created_at AS createdAt, stories.updated_at AS updatedAt,',
-    'stories.published_at AS publishedAt',
-    'FROM stories JOIN moderation_cases',
-    "ON moderation_cases.content_type = 'story' AND moderation_cases.content_id = stories.id",
+    `SELECT ${storyFields} ${storySource}`,
     'WHERE stories.author_account_id = ?',
     'ORDER BY stories.created_at DESC, stories.id DESC'
   ].join(' '));
@@ -285,49 +338,64 @@ export function createDatabase(databasePath) {
     'WHERE story_id = ? ORDER BY position ASC'
   ].join(' '));
   const selectStoriesForModeration = database.prepare([
-    'SELECT stories.id AS id, stories.board AS board, stories.title AS title,',
-    'stories.body AS content, stories.response_preference AS responsePreference,',
-    'stories.visibility AS visibility, stories.moderation_status AS moderationStatus,',
-    'moderation_cases.automated_status AS automatedReviewStatus,',
-    'moderation_cases.human_status AS humanReviewStatus,',
-    'moderation_cases.decision_reason AS decisionReason,',
-    'moderation_cases.decided_at AS decidedAt,',
-    'stories.created_at AS createdAt, stories.updated_at AS updatedAt,',
-    'stories.published_at AS publishedAt',
-    'FROM stories JOIN moderation_cases',
-    "ON moderation_cases.content_type = 'story' AND moderation_cases.content_id = stories.id",
+    `SELECT ${storyFields} ${storySource}`,
     'WHERE stories.moderation_status = ?',
     'ORDER BY stories.created_at ASC, stories.id ASC'
   ].join(' '));
-  const selectStoryForModeration = database.prepare([
-    'SELECT stories.id AS id, stories.board AS board, stories.title AS title,',
-    'stories.body AS content, stories.response_preference AS responsePreference,',
-    'stories.visibility AS visibility, stories.moderation_status AS moderationStatus,',
-    'moderation_cases.automated_status AS automatedReviewStatus,',
-    'moderation_cases.human_status AS humanReviewStatus,',
-    'moderation_cases.decision_reason AS decisionReason,',
-    'moderation_cases.decided_at AS decidedAt,',
-    'stories.created_at AS createdAt, stories.updated_at AS updatedAt,',
-    'stories.published_at AS publishedAt',
-    'FROM stories JOIN moderation_cases',
-    "ON moderation_cases.content_type = 'story' AND moderation_cases.content_id = stories.id",
-    'WHERE stories.id = ?'
-  ].join(' '));
+  const selectStoryForModeration = database.prepare(
+    `SELECT ${storyFields} ${storySource} WHERE stories.id = ?`
+  );
   const selectPublishedStories = database.prepare([
     'SELECT id, board, title, body AS content,',
     'response_preference AS responsePreference, published_at AS publishedAt',
     "FROM stories WHERE moderation_status = 'approved'",
     'ORDER BY published_at DESC, id DESC LIMIT ?'
   ].join(' '));
-  // Table names come only from this fixed map, never from request input.
-  const updateContentModeration = Object.fromEntries(
-    [['story', 'stories'], ['comment', 'comments'], ['follow_up', 'follow_ups']].map(
-      ([contentType, table]) => [contentType, database.prepare([
-        `UPDATE ${table} SET moderation_status = ?, updated_at = ?, published_at = ?`,
-        "WHERE id = ? AND moderation_status = 'pending-human-review'"
-      ].join(' '))]
-    )
+  const updateContentModeration = prepareForEachContentType(database, (table) => [
+    `UPDATE ${table} SET moderation_status = ?, updated_at = ?, published_at = ?`,
+    "WHERE id = ? AND moderation_status = 'pending-human-review'"
+  ].join(' '));
+  const withdrawOwnedContent = prepareForEachContentType(database, (table) => [
+    `UPDATE ${table} SET moderation_status = 'withdrawn', updated_at = ?`,
+    "WHERE id = ? AND author_account_id = ? AND moderation_status != 'withdrawn'"
+  ].join(' '));
+  const publishRejectedContent = prepareForEachContentType(database, (table) => [
+    `UPDATE ${table} SET moderation_status = 'approved', updated_at = ?, published_at = ?`,
+    "WHERE id = ? AND moderation_status = 'rejected'"
+  ].join(' '));
+  const selectContentStatus = prepareForEachContentType(database, (table) => [
+    `SELECT moderation_status AS moderationStatus, author_account_id AS authorAccountId`,
+    `FROM ${table} WHERE id = ?`
+  ].join(' '));
+  const insertAppeal = database.prepare([
+    'INSERT INTO appeals (',
+    'id, moderation_case_id, appellant_account_id, reason_code, explanation, status, created_at',
+    ") VALUES (?, ?, ?, ?, ?, 'pending', ?)"
+  ].join(' '));
+  const selectAppealForCase = database.prepare('SELECT id FROM appeals WHERE moderation_case_id = ?');
+  const appealQueueFields = [
+    'appeals.id AS id, appeals.reason_code AS reasonCode, appeals.explanation AS explanation,',
+    'appeals.status AS status, appeals.created_at AS createdAt,',
+    'moderation_cases.id AS moderationCaseId,',
+    'moderation_cases.content_type AS contentType, moderation_cases.content_id AS contentId,',
+    'moderation_cases.decision_reason AS originalDecisionReason,',
+    'moderation_cases.decided_at AS originalDecidedAt,',
+    'moderation_cases.decided_by_account_id AS originalDeciderAccountId',
+    'FROM appeals JOIN moderation_cases ON moderation_cases.id = appeals.moderation_case_id'
+  ].join(' ');
+  const selectPendingAppeals = database.prepare(
+    `SELECT ${appealQueueFields} WHERE appeals.status = 'pending' ORDER BY appeals.created_at ASC, appeals.id ASC`
   );
+  const selectAppeal = database.prepare(`SELECT ${appealQueueFields} WHERE appeals.id = ?`);
+  const resolveAppeal = database.prepare([
+    'UPDATE appeals SET status = ?, decision_reason = ?, decided_by_account_id = ?, decided_at = ?',
+    "WHERE id = ? AND status = 'pending'"
+  ].join(' '));
+  const updateModerationCaseById = database.prepare([
+    'UPDATE moderation_cases SET human_status = ?, decision_reason = ?,',
+    'decided_at = ?, decided_by_account_id = ?, updated_at = ?',
+    'WHERE id = ?'
+  ].join(' '));
   const updateModerationCase = database.prepare([
     'UPDATE moderation_cases SET human_status = ?, decision_reason = ?,',
     'decided_at = ?, decided_by_account_id = ?, updated_at = ?',
@@ -358,12 +426,13 @@ export function createDatabase(databasePath) {
     'moderation_cases.human_status AS humanReviewStatus,',
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
-    'comments.created_at AS createdAt, comments.published_at AS publishedAt'
+    `comments.created_at AS createdAt, comments.published_at AS publishedAt, ${appealFields}`
   ].join(' ');
   const commentSource = [
     'FROM comments JOIN stories ON stories.id = comments.story_id',
     'JOIN moderation_cases',
-    "ON moderation_cases.content_type = 'comment' AND moderation_cases.content_id = comments.id"
+    "ON moderation_cases.content_type = 'comment' AND moderation_cases.content_id = comments.id",
+    appealSource
   ].join(' ');
   const selectCommentForAccount = database.prepare([
     `SELECT ${commentFields} ${commentSource}`,
@@ -379,7 +448,7 @@ export function createDatabase(databasePath) {
     `SELECT ${commentFields},`,
     'stories.body AS storyContent, stories.response_preference AS storyResponsePreference',
     commentSource,
-    "WHERE comments.moderation_status = 'pending-human-review'",
+    "WHERE comments.moderation_status = 'pending-human-review' AND stories.moderation_status = 'approved'",
     'ORDER BY comments.created_at ASC, comments.id ASC'
   ].join(' '));
   const selectCommentForModeration = database.prepare(
@@ -419,13 +488,14 @@ export function createDatabase(databasePath) {
     'moderation_cases.human_status AS humanReviewStatus,',
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
-    'follow_ups.created_at AS createdAt, follow_ups.published_at AS publishedAt'
+    `follow_ups.created_at AS createdAt, follow_ups.published_at AS publishedAt, ${appealFields}`
   ].join(' ');
   // Private follow-ups never enter review, so their moderation case is optional.
   const followUpSource = [
     'FROM follow_ups JOIN stories ON stories.id = follow_ups.story_id',
     'LEFT JOIN moderation_cases',
-    "ON moderation_cases.content_type = 'follow_up' AND moderation_cases.content_id = follow_ups.id"
+    "ON moderation_cases.content_type = 'follow_up' AND moderation_cases.content_id = follow_ups.id",
+    appealSource
   ].join(' ');
   const selectFollowUpForAccount = database.prepare([
     `SELECT ${followUpFields} ${followUpSource}`,
@@ -439,6 +509,7 @@ export function createDatabase(databasePath) {
   const selectFollowUpsForModeration = database.prepare([
     `SELECT ${followUpFields} ${followUpSource}`,
     "WHERE follow_ups.moderation_status = 'pending-human-review'",
+    "AND stories.moderation_status = 'approved'",
     'ORDER BY follow_ups.created_at ASC, follow_ups.id ASC'
   ].join(' '));
   const selectFollowUpForModeration = database.prepare(
@@ -461,6 +532,18 @@ export function createDatabase(databasePath) {
       ...row,
       tags: selectStoryTags.all(row.id).map(({ tagValue }) => tagValue)
     });
+  }
+
+  function selectOwnedContent(contentType, contentId, accountId) {
+    if (contentType === 'story') return hydrateStory(selectStoryForAccount.get(contentId, accountId));
+    if (contentType === 'comment') return selectCommentForAccount.get(contentId, accountId) || null;
+    return selectFollowUpForAccount.get(contentId, accountId) || null;
+  }
+
+  function selectContentForModeration(contentType, contentId) {
+    if (contentType === 'story') return hydrateStory(selectStoryForModeration.get(contentId));
+    if (contentType === 'comment') return selectCommentForModeration.get(contentId) || null;
+    return selectFollowUpForModeration.get(contentId) || null;
   }
 
   function withTransaction(work) {
@@ -626,6 +709,106 @@ export function createDatabase(databasePath) {
       return moderateContent('follow_up', followUpId, decision)
         ? selectFollowUpForModeration.get(followUpId)
         : null;
+    },
+
+    // Returns null when the content does not exist or belongs to someone else.
+    withdrawContent({ contentType, contentId, accountId, withdrawnAt }) {
+      const timestamp = withdrawnAt.toISOString();
+      withTransaction(() => {
+        const update = withdrawOwnedContent[contentType].run(timestamp, contentId, accountId);
+        const moderationCase = selectModerationCaseId.get(contentType, contentId);
+        // Private follow-ups never had a case, so only reviewed content gets an event.
+        if (Number(update.changes) === 1 && moderationCase) {
+          insertModerationEvent.run(
+            randomUUID(), moderationCase.id, accountId, 'withdrawn', null, timestamp
+          );
+        }
+      });
+      return selectOwnedContent(contentType, contentId, accountId);
+    },
+
+    getOwnedContentState({ contentType, contentId, accountId }) {
+      const content = selectContentStatus[contentType].get(contentId);
+      if (!content || content.authorAccountId !== accountId) return null;
+      const moderationCase = selectModerationCaseId.get(contentType, contentId);
+      return {
+        moderationStatus: content.moderationStatus,
+        moderationCaseId: moderationCase?.id || null,
+        hasAppeal: Boolean(moderationCase && selectAppealForCase.get(moderationCase.id))
+      };
+    },
+
+    createAppeal({
+      id,
+      contentType,
+      contentId,
+      moderationCaseId,
+      appellantAccountId,
+      reasonCode,
+      explanation,
+      createdAt
+    }) {
+      const timestamp = createdAt.toISOString();
+      withTransaction(() => {
+        insertAppeal.run(
+          id, moderationCaseId, appellantAccountId, reasonCode, explanation, timestamp
+        );
+        insertModerationEvent.run(
+          randomUUID(), moderationCaseId, appellantAccountId, 'appealed', reasonCode, timestamp
+        );
+      });
+      return selectOwnedContent(contentType, contentId, appellantAccountId);
+    },
+
+    // Appeals for content the author has since withdrawn are left out of the queue.
+    listPendingAppeals() {
+      return selectPendingAppeals.all().flatMap((appeal) => {
+        const content = selectContentForModeration(appeal.contentType, appeal.contentId);
+        return content?.moderationStatus === 'rejected' ? [{ ...appeal, content }] : [];
+      });
+    },
+
+    findAppeal(appealId) {
+      return selectAppeal.get(appealId) || null;
+    },
+
+    // Returns false when the appeal was already resolved or the content withdrawn.
+    resolveAppeal({ appealId, reviewerAccountId, decision, reason, decidedAt }) {
+      const timestamp = decidedAt.toISOString();
+      const appeal = selectAppeal.get(appealId);
+      if (!appeal) return false;
+
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        const overturn = decision === 'overturn';
+        const appealUpdate = resolveAppeal.run(
+          overturn ? 'overturned' : 'upheld', reason, reviewerAccountId, timestamp, appealId
+        );
+        const content = selectContentStatus[appeal.contentType].get(appeal.contentId);
+        if (Number(appealUpdate.changes) !== 1 || content?.moderationStatus !== 'rejected') {
+          database.exec('ROLLBACK');
+          return false;
+        }
+        if (overturn) {
+          publishRejectedContent[appeal.contentType].run(timestamp, timestamp, appeal.contentId);
+          updateModerationCaseById.run(
+            'approved', reason, timestamp, reviewerAccountId, timestamp, appeal.moderationCaseId
+          );
+        }
+        insertModerationEvent.run(
+          randomUUID(),
+          appeal.moderationCaseId,
+          reviewerAccountId,
+          overturn ? 'appeal-overturned' : 'appeal-upheld',
+          reason,
+          timestamp
+        );
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
+      return true;
     },
 
     findStoryForInteraction(storyId) {

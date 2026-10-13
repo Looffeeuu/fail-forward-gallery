@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { createDatabase } from '../server/database.mjs';
 
-test('V0.2 story-only moderation cases are migrated without losing decisions', (t) => {
+test('V0.2 moderation tables are migrated without losing decisions', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'ffg-migration-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const databasePath = join(directory, 'v02.sqlite');
@@ -31,14 +31,16 @@ test('V0.2 story-only moderation cases are migrated without losing decisions', (
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE moderation_events (id TEXT PRIMARY KEY,
       moderation_case_id TEXT NOT NULL REFERENCES moderation_cases(id) ON DELETE CASCADE,
-      actor_account_id TEXT REFERENCES accounts(id), action TEXT NOT NULL, reason TEXT,
+      actor_account_id TEXT REFERENCES accounts(id),
+      action TEXT NOT NULL CHECK (action IN ('submitted', 'approved', 'rejected')), reason TEXT,
       created_at TEXT NOT NULL);
     INSERT INTO accounts VALUES ('author', 'author-phone', 'member', 'active', 't', 't');
     INSERT INTO stories VALUES ('story-1', 'author', 'academic', 'Kept', 'Body', 'advice',
       'anonymous-public', 'approved', 't', 't', 't');
     INSERT INTO moderation_cases VALUES ('case-1', 'story', 'story-1', 'not-configured',
       'approved', 'Meets the guidelines.', 't', NULL, 't', 't');
-    INSERT INTO moderation_events VALUES ('event-1', 'case-1', 'author', 'submitted', NULL, 't');
+    INSERT INTO moderation_events VALUES ('event-1', 'case-1', 'author', 'submitted', NULL,
+      '2026-09-15T00:00:00.000Z');
   `);
   legacy.close();
 
@@ -61,5 +63,16 @@ test('V0.2 story-only moderation cases are migrated without losing decisions', (
   assert.deepEqual(
     database.listModerationEvents('comment-1', 'comment').map(({ action }) => action),
     ['submitted']
+  );
+
+  database.withdrawContent({
+    contentType: 'story',
+    contentId: 'story-1',
+    accountId: 'author',
+    withdrawnAt: new Date('2026-10-13T01:00:00.000Z')
+  });
+  assert.deepEqual(
+    database.listModerationEvents('story-1').map(({ action }) => action),
+    ['submitted', 'withdrawn']
   );
 });

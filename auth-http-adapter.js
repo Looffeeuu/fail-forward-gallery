@@ -38,8 +38,20 @@
     'invalid-follow-up-id',
     'comment-rate-limited',
     'too-many-pending-comments',
-    'duplicate-comment'
+    'duplicate-comment',
+    'content-not-found',
+    'appeal-not-available',
+    'appeal-already-submitted',
+    'invalid-appeal-reason',
+    'invalid-appeal-explanation',
+    'invalid-appeal-id'
   ]);
+
+  const CONTENT_PATHS = Object.freeze({
+    story: 'stories',
+    comment: 'comments',
+    follow_up: 'follow-ups'
+  });
 
   function normaliseBaseUrl(value) {
     const baseUrl = String(value || '').trim().replace(/\/$/, '');
@@ -96,7 +108,13 @@
       createdAt: String(comment.createdAt || ''),
       publishedAt: optionalString(comment.publishedAt),
       decisionReason: optionalString(comment.decisionReason),
-      decidedAt: optionalString(comment.decidedAt)
+      decidedAt: optionalString(comment.decidedAt),
+      appealId: optionalString(comment.appealId),
+      appealStatus: optionalString(comment.appealStatus),
+      appealReasonCode: optionalString(comment.appealReasonCode),
+      appealExplanation: optionalString(comment.appealExplanation),
+      appealDecisionReason: optionalString(comment.appealDecisionReason),
+      appealDecidedAt: optionalString(comment.appealDecidedAt)
     });
   }
 
@@ -115,7 +133,13 @@
       createdAt: String(followUp.createdAt || ''),
       publishedAt: optionalString(followUp.publishedAt),
       decisionReason: optionalString(followUp.decisionReason),
-      decidedAt: optionalString(followUp.decidedAt)
+      decidedAt: optionalString(followUp.decidedAt),
+      appealId: optionalString(followUp.appealId),
+      appealStatus: optionalString(followUp.appealStatus),
+      appealReasonCode: optionalString(followUp.appealReasonCode),
+      appealExplanation: optionalString(followUp.appealExplanation),
+      appealDecisionReason: optionalString(followUp.appealDecisionReason),
+      appealDecidedAt: optionalString(followUp.appealDecidedAt)
     });
   }
 
@@ -158,7 +182,37 @@
       publishedAt: story.publishedAt ? String(story.publishedAt) : null,
       decisionReason: story.decisionReason ? String(story.decisionReason) : null,
       decidedAt: story.decidedAt ? String(story.decidedAt) : null,
-      followUps: sanitiseList(story.followUps, sanitiseFollowUp)
+      followUps: sanitiseList(story.followUps, sanitiseFollowUp),
+      appealId: optionalString(story.appealId),
+      appealStatus: optionalString(story.appealStatus),
+      appealReasonCode: optionalString(story.appealReasonCode),
+      appealExplanation: optionalString(story.appealExplanation),
+      appealDecisionReason: optionalString(story.appealDecisionReason),
+      appealDecidedAt: optionalString(story.appealDecidedAt)
+    });
+  }
+
+  const OWNED_CONTENT_SANITISERS = Object.freeze({
+    story: sanitiseStory,
+    comment: sanitiseComment,
+    follow_up: sanitiseFollowUp
+  });
+
+  // Reviewer view of an appeal: the rejected content plus the original decision.
+  function sanitiseAppeal(appeal) {
+    if (!appeal || typeof appeal !== 'object') return null;
+    const sanitiseContent = OWNED_CONTENT_SANITISERS[appeal.contentType];
+    if (!sanitiseContent) return null;
+    return Object.freeze({
+      id: String(appeal.id || ''),
+      contentType: String(appeal.contentType),
+      reasonCode: String(appeal.reasonCode || ''),
+      explanation: String(appeal.explanation || ''),
+      createdAt: String(appeal.createdAt || ''),
+      originalDecisionReason: optionalString(appeal.originalDecisionReason),
+      originalDecidedAt: optionalString(appeal.originalDecidedAt),
+      originalDecisionByYou: appeal.originalDecisionByYou === true,
+      content: sanitiseContent(appeal.content)
     });
   }
 
@@ -185,7 +239,20 @@
       : 10000;
     let csrfToken = '';
 
+    // Another tab opening a session rotates the CSRF cookie, which would make
+    // every later write from this tab fail. Fetch the current token and retry once.
     async function request(path, init = {}) {
+      try {
+        return await sendRequest(path, init);
+      } catch (error) {
+        const isWrite = init.method && init.method !== 'GET';
+        if (error.code !== 'invalid-csrf' || !isWrite) throw error;
+        await sendRequest('/api/v1/auth/session', { method: 'GET' });
+        return sendRequest(path, init);
+      }
+    }
+
+    async function sendRequest(path, init = {}) {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       const headers = new Headers(init.headers || {});
@@ -329,6 +396,36 @@
       async listMyComments() {
         const payload = await adapter.requestJson('/api/v1/me/comments', { method: 'GET' });
         return sanitiseList(payload.comments, sanitiseComment);
+      },
+
+      async withdrawContent(contentType, contentId) {
+        const payload = await adapter.requestJson(
+          `/api/v1/me/${CONTENT_PATHS[contentType]}/${encodeURIComponent(contentId)}/withdraw`,
+          { method: 'POST' }
+        );
+        return OWNED_CONTENT_SANITISERS[contentType](payload.content);
+      },
+
+      async appealContent(contentType, contentId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/me/${CONTENT_PATHS[contentType]}/${encodeURIComponent(contentId)}/appeal`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        return OWNED_CONTENT_SANITISERS[contentType](payload.content);
+      },
+
+      async listModerationAppeals() {
+        const payload = await adapter.requestJson('/api/v1/moderation/appeals', { method: 'GET' });
+        return sanitiseList(payload.appeals, sanitiseAppeal);
+      },
+
+      async decideAppeal(appealId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/moderation/appeals/${encodeURIComponent(appealId)}/decision`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        if (!payload.appeal?.id) throw createAuthError('request-failed', 'The review response was incomplete.');
+        return payload.appeal;
       },
 
       async listModerationComments() {

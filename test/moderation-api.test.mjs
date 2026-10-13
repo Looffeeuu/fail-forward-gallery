@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createAuthService } from '../server/auth-service.mjs';
+import { createAuthorControlService } from '../server/author-control-service.mjs';
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
@@ -98,6 +99,7 @@ test('moderation API enforces reviewer access and publishes only approved storie
     authService,
     storyService,
     storyResponseService: createStoryResponseService({ database }),
+    authorControlService: createAuthorControlService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

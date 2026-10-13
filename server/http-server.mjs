@@ -9,6 +9,11 @@ import { StoryError } from './story-service.mjs';
 const MAX_JSON_BYTES = 8 * 1024;
 const CSRF_COOKIE = 'ffg_csrf';
 const SESSION_COOKIE = 'ffg_session';
+const CONTENT_TYPES_BY_PATH = Object.freeze({
+  stories: 'story',
+  comments: 'comment',
+  'follow-ups': 'follow_up'
+});
 const PUBLIC_FILES = new Set([
   'index.html',
   'styles.css',
@@ -189,11 +194,19 @@ export function createHttpServer({
   authService,
   storyService,
   storyResponseService,
+  authorControlService,
   moderationService,
   config,
   logger = console
 }) {
-  if (!authService || !storyService || !storyResponseService || !moderationService || !config) {
+  if (
+    !authService
+    || !storyService
+    || !storyResponseService
+    || !authorControlService
+    || !moderationService
+    || !config
+  ) {
     throw new TypeError('HTTP server dependencies are incomplete.');
   }
 
@@ -344,6 +357,36 @@ export function createHttpServer({
         return;
       }
 
+      const authorControlMatch = url.pathname.match(
+        /^\/api\/v1\/me\/(stories|comments|follow-ups)\/([^/]+)\/(withdraw|appeal)$/
+      );
+      if (request.method === 'POST' && authorControlMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const contentRequest = {
+          accountId: session?.accountId,
+          contentType: CONTENT_TYPES_BY_PATH[authorControlMatch[1]],
+          contentId: decodeURIComponent(authorControlMatch[2])
+        };
+        if (authorControlMatch[3] === 'withdraw') {
+          sendJson(response, 200, { content: authorControlService.withdraw(contentRequest) });
+        } else {
+          const body = await readJson(request);
+          sendJson(response, 201, {
+            content: authorControlService.appeal({ ...contentRequest, input: body })
+          });
+        }
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/moderation/appeals') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, {
+          appeals: moderationService.listPendingAppeals(session)
+        });
+        return;
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/v1/moderation/comments') {
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
         sendJson(response, 200, {
@@ -369,7 +412,7 @@ export function createHttpServer({
       }
 
       const decisionMatch = url.pathname.match(
-        /^\/api\/v1\/moderation\/(stories|comments|follow-ups)\/([^/]+)\/decision$/
+        /^\/api\/v1\/moderation\/(stories|comments|follow-ups|appeals)\/([^/]+)\/decision$/
       );
       if (request.method === 'POST' && decisionMatch) {
         requireCsrf(request, cookies);
@@ -379,6 +422,9 @@ export function createHttpServer({
         if (decisionMatch[1] === 'stories') {
           const story = moderationService.decideStory({ session, storyId: contentId, input: body });
           sendJson(response, 200, { story });
+        } else if (decisionMatch[1] === 'appeals') {
+          const appeal = moderationService.decideAppeal({ session, appealId: contentId, input: body });
+          sendJson(response, 200, { appeal });
         } else if (decisionMatch[1] === 'comments') {
           const comment = moderationService.decideComment({ session, commentId: contentId, input: body });
           sendJson(response, 200, { comment });

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -405,6 +405,174 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
           $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/me/{contentPath}/{contentId}/withdraw:
+    post:
+      summary: Withdraw the current account's own story, comment, or follow-up
+      operationId: withdrawContent
+      description: Takes effect immediately in any state (pending, approved, rejected, or private). Withdrawn content leaves public feeds and review queues; the record and audit event are kept. Content owned by another account returns 404, so ownership is never revealed. Repeating the call is harmless.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/ContentPath'
+        - $ref: '#/components/parameters/ContentId'
+      responses:
+        '200':
+          description: The owner's view of the withdrawn content.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [content]
+                properties:
+                  content:
+                    $ref: '#/components/schemas/OwnedContent'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '404':
+          $ref: '#/components/responses/ContentNotFound'
+  /api/v1/me/{contentPath}/{contentId}/appeal:
+    post:
+      summary: Appeal a rejection of the current account's own content
+      operationId: appealContent
+      description: Each review decision can be appealed once. Appeals enter the reviewer queue; any reviewer may decide them, including the original reviewer, who is told it was their decision.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/ContentPath'
+        - $ref: '#/components/parameters/ContentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppealSubmission'
+      responses:
+        '201':
+          description: Appeal recorded; the owner's view now carries appealStatus pending.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [content]
+                properties:
+                  content:
+                    $ref: '#/components/schemas/OwnedContent'
+        '400':
+          description: Invalid reason code (invalid-appeal-reason) or explanation length (invalid-appeal-explanation).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '404':
+          $ref: '#/components/responses/ContentNotFound'
+        '409':
+          description: The content is not rejected (appeal-not-available) or was already appealed (appeal-already-submitted).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/moderation/appeals:
+    get:
+      summary: List appeals awaiting re-review
+      operationId: listModerationAppeals
+      description: Appeals whose content was withdrawn are omitted. Reviewers learn only whether they made the original decision, never who did.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [appeals]
+                properties:
+                  appeals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModerationAppeal'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/moderation/appeals/{appealId}/decision:
+    post:
+      summary: Overturn or uphold an appealed rejection
+      operationId: decideAppeal
+      description: Overturning publishes the content immediately and records the new decision on its moderation case. Both outcomes add an audit event.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: appealId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reason]
+              properties:
+                decision:
+                  type: string
+                  enum: [overturn, uphold]
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 500
+      responses:
+        '200':
+          description: Appeal resolved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [appeal]
+                properties:
+                  appeal:
+                    type: object
+                    required: [id, status, contentType]
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                        enum: [overturned, upheld]
+                      contentType:
+                        type: string
+                        enum: [story, comment, follow_up]
+        '400':
+          description: The decision or reason is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The appeal was already resolved or its content withdrawn.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -593,6 +761,19 @@ components:
       required: true
       schema:
         type: string
+    ContentPath:
+      name: contentPath
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [stories, comments, follow-ups]
+    ContentId:
+      name: contentId
+      in: path
+      required: true
+      schema:
+        type: string
     StoryId:
       name: storyId
       in: path
@@ -763,11 +944,82 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        appealId:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealStatus:
+          oneOf:
+            - type: string
+              enum: [pending, upheld, overturned]
+            - type: 'null'
+        appealReasonCode:
+          oneOf:
+            - $ref: '#/components/schemas/AppealReasonCode'
+            - type: 'null'
+        appealExplanation:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecisionReason:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
         followUps:
           type: array
           description: Present in the owner view only; includes private follow-ups.
           items:
             $ref: '#/components/schemas/OwnedFollowUp'
+    OwnedContent:
+      oneOf:
+        - $ref: '#/components/schemas/OwnedStory'
+        - $ref: '#/components/schemas/OwnedComment'
+        - $ref: '#/components/schemas/OwnedFollowUp'
+    AppealReasonCode:
+      type: string
+      enum: [context-misunderstood, no-identifying-details, within-guidelines, other]
+    AppealSubmission:
+      type: object
+      required: [reasonCode, explanation]
+      properties:
+        reasonCode:
+          $ref: '#/components/schemas/AppealReasonCode'
+        explanation:
+          type: string
+          minLength: 10
+          maxLength: 1000
+    ModerationAppeal:
+      type: object
+      required: [id, contentType, reasonCode, explanation, createdAt, originalDecisionByYou, content]
+      properties:
+        id:
+          type: string
+        contentType:
+          type: string
+          enum: [story, comment, follow_up]
+        reasonCode:
+          $ref: '#/components/schemas/AppealReasonCode'
+        explanation:
+          type: string
+        status:
+          const: pending
+        createdAt:
+          type: string
+          format: date-time
+        originalDecisionReason:
+          type: string
+        originalDecidedAt:
+          type: string
+          format: date-time
+        originalDecisionByYou:
+          type: boolean
+        content:
+          $ref: '#/components/schemas/OwnedContent'
     ReviewDecision:
       type: object
       additionalProperties: false
@@ -882,6 +1134,32 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        appealId:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealStatus:
+          oneOf:
+            - type: string
+              enum: [pending, upheld, overturned]
+            - type: 'null'
+        appealReasonCode:
+          oneOf:
+            - $ref: '#/components/schemas/AppealReasonCode'
+            - type: 'null'
+        appealExplanation:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecisionReason:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
     OwnedFollowUp:
       type: object
       description: Private follow-ups have moderationStatus private and null review fields.
@@ -931,6 +1209,32 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        appealId:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealStatus:
+          oneOf:
+            - type: string
+              enum: [pending, upheld, overturned]
+            - type: 'null'
+        appealReasonCode:
+          oneOf:
+            - $ref: '#/components/schemas/AppealReasonCode'
+            - type: 'null'
+        appealExplanation:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecisionReason:
+          oneOf:
+            - type: string
+            - type: 'null'
+        appealDecidedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
   responses:
     AuthenticationRequired:
       description: A valid private account session is required.
@@ -958,6 +1262,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     ModeratorRequired:
       description: An authenticated moderator or administrator role is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ContentNotFound:
+      description: The content does not exist or belongs to another account.
       content:
         application/json:
           schema:

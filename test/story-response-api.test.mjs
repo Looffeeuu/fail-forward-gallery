@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createAuthService } from '../server/auth-service.mjs';
+import { createAuthorControlService } from '../server/author-control-service.mjs';
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
@@ -69,6 +70,7 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     authService,
     storyService: createStoryService({ database }),
     storyResponseService: createStoryResponseService({ database }),
+    authorControlService: createAuthorControlService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -185,4 +187,36 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   assert.equal(myComments.payload.comments[0].decisionReason, 'Please remove the named workplace.');
   const visitorComments = await visitor.send('/api/v1/me/comments');
   assert.equal(visitorComments.status, 401);
+
+  // Appeal the rejected comment, then overturn it from the appeal queue.
+  const commentId = comment.payload.comment.id;
+  const appeal = await reader.send(`/api/v1/me/comments/${commentId}/appeal`, {
+    method: 'POST',
+    body: { reasonCode: 'no-identifying-details', explanation: 'I only said a workplace, not which one.' }
+  });
+  assert.equal(appeal.status, 201);
+  assert.equal(appeal.payload.content.appealStatus, 'pending');
+  const appealQueue = await moderator.send('/api/v1/moderation/appeals');
+  assert.equal(appealQueue.payload.appeals[0].originalDecisionByYou, true);
+  const memberAppeals = await reader.send('/api/v1/moderation/appeals');
+  assert.equal(memberAppeals.status, 403);
+  const overturn = await moderator.send(
+    `/api/v1/moderation/appeals/${appealQueue.payload.appeals[0].id}/decision`,
+    { method: 'POST', body: { decision: 'overturn', reason: 'No workplace is identifiable.' } }
+  );
+  assert.equal(overturn.status, 200);
+  assert.equal(overturn.payload.appeal.status, 'overturned');
+  const withComment = await visitor.send('/api/v1/stories');
+  assert.equal(withComment.payload.stories[0].comments.length, 1);
+
+  // Withdrawal: only the author's own story, and it leaves the public feed at once.
+  const strangerWithdraw = await reader.send(`/api/v1/me/stories/${story.id}/withdraw`, {
+    method: 'POST'
+  });
+  assert.equal(strangerWithdraw.status, 404);
+  const withdraw = await author.send(`/api/v1/me/stories/${story.id}/withdraw`, { method: 'POST' });
+  assert.equal(withdraw.status, 200);
+  assert.equal(withdraw.payload.content.moderationStatus, 'withdrawn');
+  const afterWithdraw = await visitor.send('/api/v1/stories');
+  assert.equal(afterWithdraw.payload.stories.length, 0);
 });

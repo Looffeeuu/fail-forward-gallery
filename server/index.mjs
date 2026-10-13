@@ -1,4 +1,5 @@
 import { createAuthService } from './auth-service.mjs';
+import { createAuthorControlService } from './author-control-service.mjs';
 import { config } from './config.mjs';
 import { createDatabase } from './database.mjs';
 import { createHttpServer } from './http-server.mjs';
@@ -23,11 +24,13 @@ const authService = createAuthService({
 });
 const storyService = createStoryService({ database });
 const storyResponseService = createStoryResponseService({ database });
+const authorControlService = createAuthorControlService({ database });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
   storyService,
   storyResponseService,
+  authorControlService,
   moderationService,
   config
 });

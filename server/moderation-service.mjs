@@ -1,5 +1,6 @@
 const REVIEWER_ROLES = new Set(['moderator', 'administrator']);
 const DECISIONS = new Set(['approve', 'reject']);
+const APPEAL_DECISIONS = new Set(['overturn', 'uphold']);
 
 export class ModerationError extends Error {
   constructor(code, status, message) {
@@ -19,7 +20,7 @@ function requireReviewer(session) {
   }
 }
 
-function normaliseDecisionInput(contentId, input, invalidContent) {
+function normaliseDecisionInput(contentId, input, invalidContent, allowedDecisions = DECISIONS) {
   const id = String(contentId || '').trim();
   const decision = String(input?.decision || '').trim();
   const reason = String(input?.reason || '').trim();
@@ -27,8 +28,12 @@ function normaliseDecisionInput(contentId, input, invalidContent) {
   if (!id || id.length > 100) {
     throw new ModerationError(invalidContent.code, 400, invalidContent.message);
   }
-  if (!DECISIONS.has(decision)) {
-    throw new ModerationError('invalid-decision', 400, 'Choose approve or reject.');
+  if (!allowedDecisions.has(decision)) {
+    throw new ModerationError(
+      'invalid-decision',
+      400,
+      `Choose ${[...allowedDecisions].join(' or ')}.`
+    );
   }
   if (reason.length < 8 || reason.length > 500) {
     throw new ModerationError(
@@ -71,6 +76,46 @@ export function createModerationService({ database, now = () => new Date() }) {
     listPendingFollowUps(session) {
       requireReviewer(session);
       return database.listFollowUpsForModeration();
+    },
+
+    // The original reviewer may still decide an appeal (small teams would
+    // otherwise stall), but the queue tells them so they can hand it over.
+    listPendingAppeals(session) {
+      requireReviewer(session);
+      return database.listPendingAppeals().map(({
+        originalDeciderAccountId,
+        moderationCaseId,
+        ...appeal
+      }) => Object.freeze({
+        ...appeal,
+        originalDecisionByYou: originalDeciderAccountId === session.accountId
+      }));
+    },
+
+    decideAppeal({ session, appealId, input }) {
+      requireReviewer(session);
+      const { id, decision, reason } = normaliseDecisionInput(
+        appealId,
+        input,
+        { code: 'invalid-appeal-id', message: 'Choose a valid appeal.' },
+        APPEAL_DECISIONS
+      );
+      const resolved = database.resolveAppeal({
+        appealId: id,
+        reviewerAccountId: session.accountId,
+        decision,
+        reason,
+        decidedAt: now()
+      });
+      if (!resolved) {
+        throw new ModerationError(
+          'review-conflict',
+          409,
+          'This appeal is no longer awaiting a decision.'
+        );
+      }
+      const { originalDeciderAccountId, moderationCaseId, ...appeal } = database.findAppeal(id);
+      return Object.freeze(appeal);
     },
 
     decideStory({ session, storyId, input }) {

@@ -62,6 +62,23 @@ const myStoriesState = {
   requestVersion: 0
 };
 
+// Inline withdraw confirmations and appeal forms in "My stories", keyed by
+// `${contentType}:${id}` so re-renders keep whichever panel is open.
+const ownerControlState = {
+  confirmingWithdrawKey: null,
+  appealingKey: null,
+  busyKey: null,
+  messageKey: null,
+  message: ''
+};
+
+const APPEAL_REASON_OPTIONS = [
+  { value: 'context-misunderstood', zh: '审核误解了内容的语境', en: 'The reviewer misunderstood the context' },
+  { value: 'no-identifying-details', zh: '内容没有包含可识别的个人信息', en: 'The content does not identify anyone' },
+  { value: 'within-guidelines', zh: '内容符合社区规范', en: 'The content follows the community guidelines' },
+  { value: 'other', zh: '其他原因', en: 'Another reason' }
+];
+
 const publicStoriesState = {
   loading: false,
   requestVersion: 0
@@ -82,7 +99,14 @@ const moderationState = {
 const MODERATION_ACTIONS = Object.freeze({
   story: 'decideStory',
   comment: 'decideComment',
-  'follow-up': 'decideFollowUp'
+  'follow-up': 'decideFollowUp',
+  appeal: 'decideAppeal'
+});
+const MODERATION_DECISIONS = Object.freeze({
+  story: ['approve', 'reject'],
+  comment: ['approve', 'reject'],
+  'follow-up': ['approve', 'reject'],
+  appeal: ['overturn', 'uphold']
 });
 
 const followUpState = {
@@ -1323,6 +1347,22 @@ function getResponseErrorMessage(errorCode) {
       zh: '请填写1–1000个字符的回应。',
       en: 'Write a response between 1 and 1,000 characters.'
     },
+    'content-not-found': {
+      zh: '找不到这条内容，可能已经被撤回。',
+      en: 'This contribution could not be found. It may already be withdrawn.'
+    },
+    'appeal-not-available': {
+      zh: '只有未通过审核的内容可以申诉。',
+      en: 'Only contributions that were not approved can be appealed.'
+    },
+    'appeal-already-submitted': {
+      zh: '这个审核决定已经申诉过一次。',
+      en: 'This decision has already been appealed once.'
+    },
+    'invalid-appeal-explanation': {
+      zh: '请用10–1000个字符说明申诉理由。',
+      en: 'Explain the appeal in 10–1,000 characters.'
+    },
     'comment-rate-limited': {
       zh: '你最近发送的回应较多，请过几分钟再试。',
       en: 'You have sent several responses recently. Please try again in a few minutes.'
@@ -1751,7 +1791,7 @@ function initModeration() {
     const reasonInput = form.querySelector('[name="review-reason"]');
     const status = form.querySelector('[data-review-status]');
     const reason = String(reasonInput?.value || '').trim();
-    if (!['approve', 'reject'].includes(decision) || !MODERATION_ACTIONS[contentType]) return;
+    if (!MODERATION_DECISIONS[contentType]?.includes(decision)) return;
 
     if (reason.length < 8 || reason.length > 500) {
       if (status) status.textContent = getModerationErrorMessage('invalid-review-reason');
@@ -1820,17 +1860,19 @@ async function loadModerationStories() {
   renderModeration(authState);
 
   try {
-    const [storyQueue, commentQueue, followUpQueue] = await Promise.all([
+    const [storyQueue, commentQueue, followUpQueue, appealQueue] = await Promise.all([
       window.FFG_CONTENT_API.listModerationStories(),
       window.FFG_CONTENT_API.listModerationComments(),
-      window.FFG_CONTENT_API.listModerationFollowUps()
+      window.FFG_CONTENT_API.listModerationFollowUps(),
+      window.FFG_CONTENT_API.listModerationAppeals()
     ]);
     if (requestVersion !== moderationState.requestVersion) return;
     // Oldest first across all content types, so nothing waits behind a busy type.
     moderationState.items = [
       ...storyQueue.map((item) => ({ contentType: 'story', item })),
       ...commentQueue.map((item) => ({ contentType: 'comment', item })),
-      ...followUpQueue.map((item) => ({ contentType: 'follow-up', item }))
+      ...followUpQueue.map((item) => ({ contentType: 'follow-up', item })),
+      ...appealQueue.map((item) => ({ contentType: 'appeal', item }))
     ].sort((first, second) => first.item.createdAt.localeCompare(second.item.createdAt));
     moderationState.loaded = true;
   } catch (error) {
@@ -1910,12 +1952,17 @@ function getModerationDecisionMessage(contentType, decision) {
     'follow-up': {
       approve: ['后续已通过人工审核，并显示在故事时间线中。', 'The follow-up was approved and now appears on the story timeline.'],
       reject: ['后续未获发布批准，审核理由已保存给作者查看。', 'The follow-up was not approved. The reason is saved for the author.']
+    },
+    appeal: {
+      overturn: ['已撤销原决定，内容现已公开。', 'The original decision was reversed and the content is now public.'],
+      uphold: ['已维持原决定，复核理由已保存给作者查看。', 'The original decision was upheld. The reason is saved for the author.']
     }
   };
   return messages[contentType][decision][useChinese ? 0 : 1];
 }
 
 function renderModerationItem({ contentType, item }) {
+  if (contentType === 'appeal') return renderAppealModerationItem(item);
   const useChinese = tagUiState.language === 'zh';
   const reasonId = `review-reason-${contentType}-${item.id}`;
   const automatedLabel = item.automatedReviewStatus === 'not-configured' || !item.automatedReviewStatus
@@ -1997,12 +2044,91 @@ function renderModerationItem({ contentType, item }) {
   `;
 }
 
+function renderModerationContentBody(contentType, content) {
+  const useChinese = tagUiState.language === 'zh';
+  if (contentType === 'follow_up') {
+    const status = getFollowUpStatus(content.status);
+    return `
+      <p class="follow-up-status"><span>${escapeHtml(useChinese ? status.labelZh : status.label)}</span></p>
+      ${content.content ? `<p class="moderation-story-body">${escapeHtml(content.content)}</p>` : ''}
+      ${content.support ? `<p class="moderation-story-body">${escapeHtml(content.support)}</p>` : ''}
+    `;
+  }
+  return `<p class="moderation-story-body">${escapeHtml(content.content)}</p>`;
+}
+
+// An appeal shows the rejected content, the original reason, and the author's
+// structured appeal side by side, so the reviewer can judge the decision itself.
+function renderAppealModerationItem(appeal) {
+  const useChinese = tagUiState.language === 'zh';
+  const content = appeal.content;
+  const typeLabel = {
+    story: useChinese ? '故事' : 'Story',
+    comment: useChinese ? '回应' : 'Response',
+    follow_up: useChinese ? '后续' : 'Follow-up'
+  }[appeal.contentType];
+  const heading = appeal.contentType === 'story'
+    ? content.title
+    : `${useChinese ? '所属故事：' : 'On: '}${content.storyTitle}`;
+  const reason = APPEAL_REASON_OPTIONS.find((option) => option.value === appeal.reasonCode);
+  const reasonId = `review-reason-appeal-${appeal.id}`;
+
+  return `
+    <article class="moderation-item is-appeal">
+      <div class="moderation-item-heading">
+        <div>
+          <span class="story-board">${escapeHtml(`${useChinese ? '申诉' : 'Appeal'} · ${typeLabel}`)}</span>
+          <h3>${escapeHtml(heading)}</h3>
+        </div>
+        <span class="review-status">${useChinese ? '待复核' : 'Awaiting re-review'}</span>
+      </div>
+      ${renderModerationContentBody(appeal.contentType, content)}
+      <div class="review-reason">
+        <strong>${useChinese ? '原审核决定：拒绝' : 'Original decision: rejected'}</strong>
+        <p>${escapeHtml(appeal.originalDecisionReason || '')}</p>
+        ${appeal.originalDecidedAt ? `<small>${escapeHtml(formatOwnedStoryDate(appeal.originalDecidedAt))}</small>` : ''}
+      </div>
+      <div class="review-reason appeal-claim">
+        <strong>${useChinese ? '作者的申诉理由：' : 'Author’s reason: '}${escapeHtml(reason ? (useChinese ? reason.zh : reason.en) : appeal.reasonCode)}</strong>
+        <p>${escapeHtml(appeal.explanation)}</p>
+        <small>${escapeHtml(formatOwnedStoryDate(appeal.createdAt))}</small>
+      </div>
+      ${appeal.originalDecisionByYou ? `
+        <p class="appeal-self-review-note">${useChinese
+          ? '原决定是你作出的。如果团队里有其他审核员，建议交给他们复核。'
+          : 'You made the original decision. If another reviewer is available, consider handing this appeal to them.'}</p>
+      ` : ''}
+      <form class="moderation-decision-form" data-moderation-form data-content-type="appeal" data-content-id="${escapeHtml(appeal.id)}">
+        <label for="${escapeHtml(reasonId)}">${useChinese ? '给作者的复核理由（必填）' : 'Re-review reason for the author (required)'}</label>
+        <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required></textarea>
+        <div class="moderation-actions">
+          <button type="submit" class="btn btn-primary" data-review-decision="overturn">${useChinese ? '撤销原决定并发布' : 'Reverse and publish'}</button>
+          <button type="submit" class="btn btn-reject" data-review-decision="uphold">${useChinese ? '维持原决定' : 'Uphold decision'}</button>
+        </div>
+        <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
+      </form>
+    </article>
+  `;
+}
+
 function initMyStories() {
   if (myStoriesState.initialised || !window.FFG_AUTH) return;
   myStoriesState.initialised = true;
 
   document.getElementById('retry-my-stories')?.addEventListener('click', () => {
     loadMyStories();
+  });
+
+  const workspace = document.querySelector('.my-stories-card');
+  workspace?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-owner-action]');
+    if (button) handleOwnerAction(button);
+  });
+  workspace?.addEventListener('submit', (event) => {
+    const form = event.target.closest('[data-appeal-form]');
+    if (!form) return;
+    event.preventDefault();
+    submitAppeal(form);
   });
 
   window.FFG_AUTH.subscribe((authState) => {
@@ -2017,6 +2143,7 @@ function initMyStories() {
     myStoriesState.stories = [];
     myStoriesState.comments = [];
     myStoriesState.errorCode = null;
+    resetOwnerControls();
     renderMyStories(authState);
   });
 }
@@ -2093,6 +2220,184 @@ function renderReviewNote(item) {
   `;
 }
 
+function renderAppealOutcome(item) {
+  if (!item.appealStatus) return '';
+  const useChinese = tagUiState.language === 'zh';
+  const headings = {
+    pending: ['申诉已提交，等待审核员复核', 'Appeal submitted and awaiting review'],
+    overturned: ['申诉成功：原决定已撤销，内容已公开', 'Appeal accepted: the decision was reversed and the content is public'],
+    upheld: ['复核后维持原决定', 'The original decision was upheld after review']
+  };
+  const [zh, en] = headings[item.appealStatus] || headings.pending;
+  return `
+    <div class="review-reason appeal-outcome appeal-outcome--${escapeHtml(item.appealStatus)}">
+      <strong>${useChinese ? zh : en}</strong>
+      ${item.appealDecisionReason ? `<p>${escapeHtml(item.appealDecisionReason)}</p>` : ''}
+      ${item.appealDecidedAt ? `<small>${escapeHtml(formatOwnedStoryDate(item.appealDecidedAt))}</small>` : ''}
+    </div>
+  `;
+}
+
+function ownerControlKey(contentType, id) {
+  return `${contentType}:${id}`;
+}
+
+function resetOwnerControls() {
+  ownerControlState.confirmingWithdrawKey = null;
+  ownerControlState.appealingKey = null;
+  ownerControlState.busyKey = null;
+  ownerControlState.messageKey = null;
+  ownerControlState.message = '';
+}
+
+function getWithdrawWarning(moderationStatus) {
+  const useChinese = tagUiState.language === 'zh';
+  if (moderationStatus === 'approved') {
+    return useChinese
+      ? '撤下后，这条内容会立即从公开页面消失，且无法恢复。确定撤下吗？'
+      : 'It will disappear from public pages immediately and cannot be restored. Withdraw it?';
+  }
+  if (moderationStatus === 'pending-human-review') {
+    return useChinese
+      ? '撤回后它不会再进入审核，且无法恢复。确定撤回吗？'
+      : 'It will leave the review queue and cannot be restored. Withdraw it?';
+  }
+  return useChinese ? '撤回后无法恢复。确定撤回吗？' : 'This cannot be undone. Withdraw it?';
+}
+
+function renderOwnerControls(contentType, item) {
+  const useChinese = tagUiState.language === 'zh';
+  const key = ownerControlKey(contentType, item.id);
+  const busy = ownerControlState.busyKey === key;
+  const dataAttributes = `data-content-type="${escapeHtml(contentType)}" data-content-id="${escapeHtml(item.id)}"`;
+  const message = ownerControlState.messageKey === key
+    ? `<p class="owner-control-status" role="status" aria-live="polite" tabindex="-1">${escapeHtml(ownerControlState.message)}</p>`
+    : '';
+
+  if (ownerControlState.confirmingWithdrawKey === key) {
+    return `
+      <div class="owner-controls is-confirming">
+        <p>${escapeHtml(getWithdrawWarning(item.moderationStatus))}</p>
+        <div class="owner-control-actions">
+          <button type="button" class="btn btn-reject btn-sm" data-owner-action="confirm-withdraw" ${dataAttributes} ${busy ? 'disabled' : ''}>${useChinese ? '确认撤回' : 'Withdraw'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-owner-action="cancel" ${busy ? 'disabled' : ''}>${useChinese ? '取消' : 'Cancel'}</button>
+        </div>
+        ${message}
+      </div>
+    `;
+  }
+
+  if (ownerControlState.appealingKey === key) {
+    const reasonId = `appeal-reason-${key.replace(/[^A-Za-z0-9-]/g, '-')}`;
+    const explanationId = `${reasonId}-explanation`;
+    return `
+      <form class="owner-controls appeal-form" data-appeal-form ${dataAttributes}>
+        <p>${useChinese
+          ? '每个审核决定只能申诉一次。申诉会交给审核员复核，他们会看到你的理由和原来的审核说明。'
+          : 'Each review decision can be appealed once. A reviewer will read your reason alongside the original decision.'}</p>
+        <label for="${reasonId}">${useChinese ? '申诉理由' : 'Reason for appeal'}</label>
+        <select id="${reasonId}" name="appeal-reason" required>
+          <option value="">${useChinese ? '请选择' : 'Choose one'}</option>
+          ${APPEAL_REASON_OPTIONS.map((option) => `<option value="${option.value}">${escapeHtml(useChinese ? option.zh : option.en)}</option>`).join('')}
+        </select>
+        <label for="${explanationId}">${useChinese ? '补充说明（10–1000个字符）' : 'Explanation (10–1,000 characters)'}</label>
+        <textarea id="${explanationId}" name="appeal-explanation" rows="3" minlength="10" maxlength="1000" required></textarea>
+        <div class="owner-control-actions">
+          <button type="submit" class="btn btn-primary btn-sm" ${busy ? 'disabled' : ''}>${useChinese ? '提交申诉' : 'Submit appeal'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-owner-action="cancel" ${busy ? 'disabled' : ''}>${useChinese ? '取消' : 'Cancel'}</button>
+        </div>
+        ${message}
+      </form>
+    `;
+  }
+
+  if (item.moderationStatus === 'withdrawn') return message;
+  const canAppeal = item.moderationStatus === 'rejected' && !item.appealStatus;
+  return `
+    <div class="owner-controls">
+      <div class="owner-control-actions">
+        ${canAppeal ? `<button type="button" class="btn btn-secondary btn-sm" data-owner-action="appeal" ${dataAttributes}>${useChinese ? '申诉' : 'Appeal'}</button>` : ''}
+        <button type="button" class="btn btn-ghost btn-sm" data-owner-action="withdraw" ${dataAttributes}>${useChinese ? '撤回' : 'Withdraw'}</button>
+      </div>
+      ${message}
+    </div>
+  `;
+}
+
+function handleOwnerAction(button) {
+  const action = button.dataset.ownerAction;
+  const key = ownerControlKey(button.dataset.contentType, button.dataset.contentId);
+  if (action === 'confirm-withdraw') {
+    withdrawOwnedContent(button.dataset.contentType, button.dataset.contentId);
+    return;
+  }
+
+  resetOwnerControls();
+  if (action === 'withdraw') ownerControlState.confirmingWithdrawKey = key;
+  if (action === 'appeal') ownerControlState.appealingKey = key;
+  renderMyStories();
+  document.querySelector(
+    '.owner-controls.is-confirming [data-owner-action="confirm-withdraw"], .appeal-form select'
+  )?.focus();
+}
+
+async function withdrawOwnedContent(contentType, contentId) {
+  const key = ownerControlKey(contentType, contentId);
+  ownerControlState.busyKey = key;
+  renderMyStories();
+  try {
+    await window.FFG_CONTENT_API.withdrawContent(contentType, contentId);
+    resetOwnerControls();
+    ownerControlState.messageKey = key;
+    ownerControlState.message = tagUiState.language === 'zh'
+      ? '已撤回。它不会再公开，也不会进入审核。'
+      : 'Withdrawn. It will not be public or reviewed.';
+    await Promise.allSettled([loadMyStories(), loadPublishedStories()]);
+  } catch (error) {
+    ownerControlState.busyKey = null;
+    ownerControlState.messageKey = key;
+    ownerControlState.message = getResponseErrorMessage(error.code);
+    renderMyStories();
+  }
+  document.querySelector('.owner-control-status')?.focus();
+}
+
+async function submitAppeal(form) {
+  const { contentType, contentId } = form.dataset;
+  const key = ownerControlKey(contentType, contentId);
+  const reasonCode = form.querySelector('[name="appeal-reason"]').value;
+  const explanation = form.querySelector('[name="appeal-explanation"]').value.trim();
+  if (!reasonCode || explanation.length < 10 || explanation.length > 1000) {
+    form.reportValidity();
+    return;
+  }
+
+  ownerControlState.busyKey = key;
+  form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  try {
+    await window.FFG_CONTENT_API.appealContent(contentType, contentId, { reasonCode, explanation });
+    resetOwnerControls();
+    ownerControlState.messageKey = key;
+    ownerControlState.message = tagUiState.language === 'zh'
+      ? '申诉已提交，审核员复核后结果会显示在这里。'
+      : 'Appeal submitted. The outcome will appear here after review.';
+    await loadMyStories();
+  } catch (error) {
+    ownerControlState.busyKey = null;
+    form.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+    let status = form.querySelector('.owner-control-status');
+    if (!status) {
+      status = document.createElement('p');
+      status.className = 'owner-control-status';
+      status.setAttribute('role', 'status');
+      status.tabIndex = -1;
+      form.append(status);
+    }
+    status.textContent = getResponseErrorMessage(error.code);
+  }
+  document.querySelector('.owner-control-status')?.focus();
+}
+
 function renderOwnedFollowUps(followUps) {
   if (!followUps?.length) return '';
   const useChinese = tagUiState.language === 'zh';
@@ -2110,6 +2415,8 @@ function renderOwnedFollowUps(followUps) {
             ${followUp.content ? `<p>${escapeHtml(truncateText(followUp.content, 200))}</p>` : ''}
             <small>${escapeHtml(formatOwnedStoryDate(followUp.createdAt))}</small>
             ${renderReviewNote(followUp)}
+            ${renderAppealOutcome(followUp)}
+            ${renderOwnerControls('follow_up', followUp)}
           </article>
         `;
       }).join('')}
@@ -2145,6 +2452,8 @@ function renderMyComments(signedIn) {
         <p class="my-story-excerpt">${escapeHtml(truncateText(comment.content, 260))}</p>
         <small>${escapeHtml(formatOwnedStoryDate(comment.createdAt))}</small>
         ${renderReviewNote(comment)}
+        ${renderAppealOutcome(comment)}
+        ${renderOwnerControls('comment', comment)}
       </article>
     `).join('')}
   `;
@@ -2204,7 +2513,11 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
           ? (useChinese
             ? '人工审核已经完成，这篇故事目前不会公开。'
             : 'Human review is complete and this story is not public.')
-          : (useChinese ? '这里显示的是与你的私密账户关联的审核记录。' : 'This review record is linked only to your private account.');
+          : story.moderationStatus === 'withdrawn'
+            ? (useChinese
+              ? '你已撤回这篇故事，它不会再公开或进入审核。'
+              : 'You withdrew this story. It will not be published or reviewed.')
+            : (useChinese ? '这里显示的是与你的私密账户关联的审核记录。' : 'This review record is linked only to your private account.');
 
     return `
       <article class="my-story-item">
@@ -2225,6 +2538,8 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
         </dl>
         <p class="moderation-note">${escapeHtml(moderationNote)}</p>
         ${renderReviewNote(story)}
+        ${renderAppealOutcome(story)}
+        ${renderOwnerControls('story', story)}
         ${renderOwnedFollowUps(story.followUps)}
       </article>
     `;
