@@ -169,6 +169,22 @@ export function createDatabase(databasePath) {
 
     ${moderationEventsTableSql('moderation_events')};
 
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      recipient_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN (
+        'approved', 'rejected', 'appeal-overturned', 'appeal-upheld',
+        'removed', 'report-actioned', 'report-dismissed'
+      )),
+      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
+      content_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS notifications_recipient_index
+      ON notifications(recipient_account_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS appeals (
       id TEXT PRIMARY KEY,
       moderation_case_id TEXT NOT NULL UNIQUE REFERENCES moderation_cases(id) ON DELETE CASCADE,
@@ -373,6 +389,36 @@ export function createDatabase(databasePath) {
     ") VALUES (?, ?, ?, ?, ?, 'pending', ?)"
   ].join(' '));
   const selectAppealForCase = database.prepare('SELECT id FROM appeals WHERE moderation_case_id = ?');
+  const insertNotification = database.prepare([
+    'INSERT INTO notifications (id, recipient_account_id, kind, content_type, content_id, created_at)',
+    'VALUES (?, ?, ?, ?, ?, ?)'
+  ].join(' '));
+  // Notifications name the story they concern; comments and follow-ups use their parent story.
+  const selectNotifications = database.prepare([
+    'SELECT notifications.id AS id, notifications.kind AS kind,',
+    'notifications.content_type AS contentType, notifications.content_id AS contentId,',
+    'notifications.created_at AS createdAt, notifications.read_at AS readAt,',
+    'COALESCE(own_story.title, comment_story.title, follow_up_story.title) AS storyTitle',
+    'FROM notifications',
+    "LEFT JOIN stories own_story ON notifications.content_type = 'story'",
+    'AND own_story.id = notifications.content_id',
+    "LEFT JOIN comments ON notifications.content_type = 'comment'",
+    'AND comments.id = notifications.content_id',
+    'LEFT JOIN stories comment_story ON comment_story.id = comments.story_id',
+    "LEFT JOIN follow_ups ON notifications.content_type = 'follow_up'",
+    'AND follow_ups.id = notifications.content_id',
+    'LEFT JOIN stories follow_up_story ON follow_up_story.id = follow_ups.story_id',
+    'WHERE notifications.recipient_account_id = ?',
+    'ORDER BY notifications.created_at DESC, notifications.id DESC LIMIT ?'
+  ].join(' '));
+  const countUnreadNotifications = database.prepare([
+    'SELECT COUNT(*) AS count FROM notifications',
+    'WHERE recipient_account_id = ? AND read_at IS NULL'
+  ].join(' '));
+  const markNotificationsRead = database.prepare([
+    'UPDATE notifications SET read_at = ?',
+    'WHERE recipient_account_id = ? AND read_at IS NULL'
+  ].join(' '));
   const appealQueueFields = [
     'appeals.id AS id, appeals.reason_code AS reasonCode, appeals.explanation AS explanation,',
     'appeals.status AS status, appeals.created_at AS createdAt,',
@@ -614,6 +660,7 @@ export function createDatabase(databasePath) {
         reason,
         timestamp
       );
+      notifyAuthor(contentType, contentId, decision === 'approve' ? 'approved' : 'rejected', timestamp);
       database.exec('COMMIT');
     } catch (error) {
       try {
@@ -624,6 +671,14 @@ export function createDatabase(databasePath) {
       throw error;
     }
     return true;
+  }
+
+  // Written inside the decision's transaction, so a decision never lands without its notice.
+  function notifyAuthor(contentType, contentId, kind, timestamp) {
+    const content = selectContentStatus[contentType].get(contentId);
+    insertNotification.run(
+      randomUUID(), content.authorAccountId, kind, contentType, contentId, timestamp
+    );
   }
 
   return Object.freeze({
@@ -803,12 +858,29 @@ export function createDatabase(databasePath) {
           reason,
           timestamp
         );
+        notifyAuthor(
+          appeal.contentType,
+          appeal.contentId,
+          overturn ? 'appeal-overturned' : 'appeal-upheld',
+          timestamp
+        );
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
         throw error;
       }
       return true;
+    },
+
+    listNotifications(accountId, limit = 30) {
+      return {
+        notifications: selectNotifications.all(accountId, limit),
+        unreadCount: Number(countUnreadNotifications.get(accountId).count)
+      };
+    },
+
+    markNotificationsRead(accountId, readAt) {
+      markNotificationsRead.run(readAt.toISOString(), accountId);
     },
 
     findStoryForInteraction(storyId) {

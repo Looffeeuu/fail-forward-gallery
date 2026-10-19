@@ -198,6 +198,25 @@
     follow_up: sanitiseFollowUp
   });
 
+  function sanitiseNotification(notification) {
+    if (!notification || typeof notification !== 'object') return null;
+    return Object.freeze({
+      id: String(notification.id || ''),
+      kind: String(notification.kind || ''),
+      contentType: String(notification.contentType || ''),
+      storyTitle: String(notification.storyTitle || ''),
+      createdAt: String(notification.createdAt || ''),
+      readAt: optionalString(notification.readAt)
+    });
+  }
+
+  function sanitiseNotificationList(payload) {
+    return Object.freeze({
+      notifications: sanitiseList(payload.notifications, sanitiseNotification),
+      unreadCount: Math.max(0, Number(payload.unreadCount) || 0)
+    });
+  }
+
   // Reviewer view of an appeal: the rejected content plus the original decision.
   function sanitiseAppeal(appeal) {
     if (!appeal || typeof appeal !== 'object') return null;
@@ -412,6 +431,18 @@
           { method: 'POST', body: JSON.stringify(input) }
         );
         return OWNED_CONTENT_SANITISERS[contentType](payload.content);
+      },
+
+      async listNotifications() {
+        return sanitiseNotificationList(
+          await adapter.requestJson('/api/v1/me/notifications', { method: 'GET' })
+        );
+      },
+
+      async markNotificationsRead() {
+        return sanitiseNotificationList(
+          await adapter.requestJson('/api/v1/me/notifications/read', { method: 'POST' })
+        );
       },
 
       async listModerationAppeals() {

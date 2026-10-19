@@ -6,6 +6,7 @@ import { createAuthorControlService } from '../server/author-control-service.mjs
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
+import { createNotificationService } from '../server/notification-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
 
@@ -71,6 +72,7 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     storyService: createStoryService({ database }),
     storyResponseService: createStoryResponseService({ database }),
     authorControlService: createAuthorControlService({ database }),
+    notificationService: createNotificationService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

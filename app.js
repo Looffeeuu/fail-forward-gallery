@@ -72,6 +72,14 @@ const ownerControlState = {
   message: ''
 };
 
+const NOTIFICATION_POLL_MS = 60 * 1000;
+const notificationState = {
+  items: [],
+  unreadCount: 0,
+  loading: false,
+  pollTimer: null
+};
+
 const APPEAL_REASON_OPTIONS = [
   { value: 'context-misunderstood', zh: '审核误解了内容的语境', en: 'The reviewer misunderstood the context' },
   { value: 'no-identifying-details', zh: '内容没有包含可识别的个人信息', en: 'The content does not identify anyone' },
@@ -180,6 +188,7 @@ function setSiteLanguage(nextLanguage) {
   appState.adviceRendered = false;
   renderAdvice();
   renderMyStories();
+  renderNotifications();
   moderationState.message = '';
   renderModeration();
 
@@ -509,7 +518,10 @@ function showPage(pageName) {
     loadPublishedStories();
   }
   if (pageName === 'advice') renderAdvice();
-  if (pageName === 'account' && isSignedIn()) loadMyStories();
+  if (pageName === 'account' && isSignedIn()) {
+    loadMyStories();
+    loadNotifications();
+  }
   if (pageName === 'moderation') {
     renderModeration();
     if (window.FFG_AUTH?.can('review-content') && !moderationState.loading) {
@@ -2119,11 +2131,20 @@ function initMyStories() {
     loadMyStories();
   });
 
-  const workspace = document.querySelector('.my-stories-card');
+  const workspace = document.getElementById('my-stories-card');
   workspace?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-owner-action]');
     if (button) handleOwnerAction(button);
   });
+  document.getElementById('notifications-panel')?.addEventListener('click', async (event) => {
+    if (!event.target.closest('[data-notification-action="read-all"]')) return;
+    try {
+      applyNotifications(await window.FFG_CONTENT_API.markNotificationsRead());
+    } catch (error) {
+      console.warn('Notifications could not be marked as read.', error);
+    }
+  });
+
   workspace?.addEventListener('submit', (event) => {
     const form = event.target.closest('[data-appeal-form]');
     if (!form) return;
@@ -2135,8 +2156,11 @@ function initMyStories() {
     syncSubmissionModeUI(authState);
     if (authState.status === window.FFG_AUTH.STATUS.AUTHENTICATED) {
       loadMyStories();
+      startNotificationPolling();
       return;
     }
+
+    stopNotificationPolling();
 
     myStoriesState.requestVersion += 1;
     myStoriesState.loading = false;
@@ -2217,6 +2241,94 @@ function renderReviewNote(item) {
       <p>${escapeHtml(item.decisionReason)}</p>
       ${item.decidedAt ? `<small>${escapeHtml(formatOwnedStoryDate(item.decidedAt))}</small>` : ''}
     </div>
+  `;
+}
+
+function startNotificationPolling() {
+  if (!window.FFG_CONTENT_API?.enabled) return;
+  loadNotifications();
+  if (notificationState.pollTimer) return;
+  notificationState.pollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible' && isSignedIn()) loadNotifications();
+  }, NOTIFICATION_POLL_MS);
+}
+
+function stopNotificationPolling() {
+  window.clearInterval(notificationState.pollTimer);
+  notificationState.pollTimer = null;
+  applyNotifications({ notifications: [], unreadCount: 0 });
+}
+
+async function loadNotifications() {
+  if (!window.FFG_CONTENT_API?.enabled || !isSignedIn() || notificationState.loading) return;
+  notificationState.loading = true;
+  try {
+    applyNotifications(await window.FFG_CONTENT_API.listNotifications());
+  } catch (error) {
+    console.warn('Notifications could not be refreshed.', error);
+  } finally {
+    notificationState.loading = false;
+  }
+}
+
+function applyNotifications({ notifications, unreadCount }) {
+  notificationState.items = [...notifications];
+  notificationState.unreadCount = unreadCount;
+  renderNotifications();
+}
+
+function getNotificationText(notification) {
+  const useChinese = tagUiState.language === 'zh';
+  const title = notification.storyTitle;
+  const subject = {
+    story: useChinese ? `你的故事《${title}》` : `Your story “${title}”`,
+    comment: useChinese ? `你对《${title}》的回应` : `Your response to “${title}”`,
+    follow_up: useChinese ? `你在《${title}》下的后续` : `Your follow-up to “${title}”`
+  }[notification.contentType] || title;
+  const outcomes = {
+    approved: ['已通过审核并公开。', 'was approved and is now public.'],
+    rejected: ['未通过审核。可以在下方查看审核说明，或提交申诉。', 'was not approved. See the review note below, or appeal.'],
+    'appeal-overturned': ['申诉成功，原决定已撤销，内容已公开。', 'was published after your appeal was accepted.'],
+    'appeal-upheld': ['的申诉经复核后维持原决定。', 'stays unpublished: the appeal upheld the original decision.']
+  };
+  const [zh, en] = outcomes[notification.kind] || ['有新的审核结果。', 'has a new review result.'];
+  return useChinese ? `${subject}${zh}` : `${subject} ${en}`;
+}
+
+function renderNotifications() {
+  const badge = document.getElementById('nav-notification-badge');
+  const panel = document.getElementById('notifications-panel');
+  const useChinese = tagUiState.language === 'zh';
+  const unread = notificationState.unreadCount;
+
+  if (badge) {
+    badge.hidden = unread === 0;
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.setAttribute('aria-label', useChinese ? `${unread} 条未读通知` : `${unread} unread notifications`);
+  }
+  if (!panel) return;
+
+  panel.hidden = notificationState.items.length === 0;
+  if (panel.hidden) {
+    panel.replaceChildren();
+    return;
+  }
+  panel.innerHTML = `
+    <div class="notifications-heading">
+      <div>
+        <span class="account-eyebrow">${useChinese ? '仅你可见' : 'Only visible to you'}</span>
+        <h2>${useChinese ? '审核通知' : 'Review notifications'}${unread ? ` <span class="notification-count">${unread}</span>` : ''}</h2>
+      </div>
+      ${unread ? `<button type="button" class="btn btn-ghost btn-sm" data-notification-action="read-all">${useChinese ? '全部标为已读' : 'Mark all as read'}</button>` : ''}
+    </div>
+    <ul class="notification-list">
+      ${notificationState.items.map((notification) => `
+        <li class="notification-item${notification.readAt ? '' : ' is-unread'}">
+          <p>${escapeHtml(getNotificationText(notification))}</p>
+          <small>${escapeHtml(formatOwnedStoryDate(notification.createdAt))}</small>
+        </li>
+      `).join('')}
+    </ul>
   `;
 }
 

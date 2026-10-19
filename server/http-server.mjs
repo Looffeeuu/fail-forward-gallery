@@ -195,6 +195,7 @@ export function createHttpServer({
   storyService,
   storyResponseService,
   authorControlService,
+  notificationService,
   moderationService,
   config,
   logger = console
@@ -204,6 +205,7 @@ export function createHttpServer({
     || !storyService
     || !storyResponseService
     || !authorControlService
+    || !notificationService
     || !moderationService
     || !config
   ) {
@@ -376,6 +378,19 @@ export function createHttpServer({
             content: authorControlService.appeal({ ...contentRequest, input: body })
           });
         }
+        return;
+      }
+
+      if (url.pathname === '/api/v1/me/notifications' && request.method === 'GET') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, notificationService.list(session?.accountId));
+        return;
+      }
+
+      if (url.pathname === '/api/v1/me/notifications/read' && request.method === 'POST') {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, notificationService.markAllRead(session?.accountId));
         return;
       }
 

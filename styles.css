@@ -2099,6 +2099,49 @@ body.modal-open { overflow: hidden; }
   color: var(--color-text-muted);
   font-size: 0.9rem;
 }
+.nav-account-item { position: relative; }
+.nav-notification-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  min-width: 1.2rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.1rem;
+  text-align: center;
+  pointer-events: none;
+}
+.notifications-card { margin-bottom: 1.5rem; }
+.notifications-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.notification-count {
+  display: inline-block;
+  min-width: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.8rem;
+  text-align: center;
+  vertical-align: middle;
+}
+.notification-list { display: grid; gap: 0.6rem; margin-top: 1rem; list-style: none; padding: 0; }
+.notification-item {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+.notification-item.is-unread { border-left: 4px solid var(--color-primary); background: #f3f8f5; }
+.notification-item small { display: block; margin-top: 0.3rem; color: var(--color-text-muted); font-size: 0.8rem; }
 .owner-controls {
   display: grid;
   gap: 0.6rem;

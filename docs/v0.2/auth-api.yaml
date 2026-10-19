@@ -573,6 +573,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/me/notifications:
+    get:
+      summary: List the current account's review notifications
+      operationId: listNotifications
+      description: The 30 most recent notices about decisions, appeals, and reports concerning the account's own content. In-site only; email delivery is not connected yet.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Recent notifications and the unread count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/me/notifications/read:
+    post:
+      summary: Mark all of the current account's notifications as read
+      operationId: markNotificationsRead
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: The updated notification list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1020,6 +1055,41 @@ components:
           type: boolean
         content:
           $ref: '#/components/schemas/OwnedContent'
+    NotificationList:
+      type: object
+      additionalProperties: false
+      required: [notifications, unreadCount]
+      properties:
+        notifications:
+          type: array
+          items:
+            type: object
+            required: [id, kind, contentType, contentId, storyTitle, createdAt]
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+                enum: [approved, rejected, appeal-overturned, appeal-upheld, removed, report-actioned, report-dismissed]
+              contentType:
+                type: string
+                enum: [story, comment, follow_up]
+              contentId:
+                type: string
+              storyTitle:
+                type: string
+                description: The story itself, or the story a comment or follow-up belongs to.
+              createdAt:
+                type: string
+                format: date-time
+              readAt:
+                oneOf:
+                  - type: string
+                    format: date-time
+                  - type: 'null'
+        unreadCount:
+          type: integer
+          minimum: 0
     ReviewDecision:
       type: object
       additionalProperties: false

@@ -19,7 +19,7 @@
       <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
       <li><a href="#" data-page="about" class="nav-link">About</a></li>
       <li data-moderator-only hidden><a href="#" data-page="moderation" class="nav-link">Review Queue</a></li>
-      <li><a href="#" data-page="account" class="nav-link nav-account-link" data-no-translate>Sign in</a></li>
+      <li class="nav-account-item"><a href="#" data-page="account" class="nav-link nav-account-link" data-no-translate>Sign in</a><span class="nav-notification-badge" id="nav-notification-badge" data-no-translate hidden></span></li>
     </ul>
     <div class="site-language-switch" role="group" aria-label="界面语言 / Interface language">
       <button type="button" class="active" data-site-language="zh" aria-pressed="true" lang="zh-CN">中文</button>
@@ -520,7 +520,9 @@
       </aside>
     </div>
 
-    <section class="my-stories-card" aria-labelledby="my-stories-title">
+    <section class="my-stories-card notifications-card" id="notifications-panel" aria-live="polite" data-no-translate hidden></section>
+
+    <section class="my-stories-card" id="my-stories-card" aria-labelledby="my-stories-title">
       <div>
         <span class="account-eyebrow">Private workspace</span>
         <h2 id="my-stories-title">My stories</h2>
