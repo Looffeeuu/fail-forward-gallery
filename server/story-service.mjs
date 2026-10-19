@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { detectRiskSignals } from './risk-signals.mjs';
 
 const ALLOWED_BOARDS = new Set(['academic', 'job', 'social']);
 const ALLOWED_RESPONSE_PREFERENCES = new Set(['none', 'encouragement', 'similar', 'advice']);
@@ -108,6 +109,7 @@ export function createStoryService({ database, now = () => new Date(), generateI
         id: generateId(),
         authorAccountId: accountId,
         ...story,
+        riskSignals: detectRiskSignals(story.title, story.content),
         createdAt: now()
       });
     },

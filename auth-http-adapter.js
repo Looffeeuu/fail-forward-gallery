@@ -116,6 +116,8 @@
       publishedAt: optionalString(comment.publishedAt),
       decisionReason: optionalString(comment.decisionReason),
       decidedAt: optionalString(comment.decidedAt),
+      riskSignal: optionalString(comment.riskSignal),
+      careSuggested: comment.careSuggested === true,
       appealId: optionalString(comment.appealId),
       appealStatus: optionalString(comment.appealStatus),
       appealReasonCode: optionalString(comment.appealReasonCode),
@@ -141,6 +143,8 @@
       publishedAt: optionalString(followUp.publishedAt),
       decisionReason: optionalString(followUp.decisionReason),
       decidedAt: optionalString(followUp.decidedAt),
+      riskSignal: optionalString(followUp.riskSignal),
+      careSuggested: followUp.careSuggested === true,
       appealId: optionalString(followUp.appealId),
       appealStatus: optionalString(followUp.appealStatus),
       appealReasonCode: optionalString(followUp.appealReasonCode),
@@ -189,6 +193,8 @@
       publishedAt: story.publishedAt ? String(story.publishedAt) : null,
       decisionReason: story.decisionReason ? String(story.decisionReason) : null,
       decidedAt: story.decidedAt ? String(story.decidedAt) : null,
+      riskSignal: optionalString(story.riskSignal),
+      careSuggested: story.careSuggested === true,
       followUps: sanitiseList(story.followUps, sanitiseFollowUp),
       stats: story.stats && typeof story.stats === 'object'
         ? Object.freeze({
@@ -538,6 +544,32 @@
           `/api/v1/moderation/recommendations/${encodeURIComponent(storyId)}`,
           { method: 'DELETE' }
         );
+      },
+
+      async listHeldContent() {
+        const payload = await adapter.requestJson('/api/v1/moderation/safety-holds', { method: 'GET' });
+        return Object.freeze((Array.isArray(payload.held) ? payload.held : []).flatMap((entry) => {
+          const content = OWNED_CONTENT_SANITISERS[entry?.contentType]?.(entry.content);
+          if (!content?.id) return [];
+          return [Object.freeze({
+            id: `${entry.contentType}:${content.id}`,
+            contentType: entry.contentType,
+            createdAt: content.decidedAt || content.createdAt,
+            content
+          })];
+        }));
+      },
+
+      // The queue identifies held content as "contentType:contentId".
+      async decideHeldContent(queueId, input) {
+        const separator = queueId.indexOf(':');
+        const contentType = queueId.slice(0, separator);
+        const contentId = queueId.slice(separator + 1);
+        const payload = await adapter.requestJson(
+          `/api/v1/moderation/safety-holds/${CONTENT_PATHS[contentType]}/${encodeURIComponent(contentId)}/decision`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        return payload.content;
       },
 
       async listNotifications() {

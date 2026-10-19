@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { detectRiskSignals } from './risk-signals.mjs';
 import { StoryError } from './story-service.mjs';
 
 const FOLLOW_UP_STATUSES = new Set([
@@ -136,6 +137,7 @@ export function createStoryResponseService({
         // The author's chosen boundary, not the commenter, decides the response type.
         responseType: story.responsePreference,
         content,
+        riskSignals: detectRiskSignals(content),
         createdAt
       });
     },
@@ -156,13 +158,20 @@ export function createStoryResponseService({
         );
       }
 
-      return database.createFollowUp({
+      const followUp = normaliseFollowUpInput(input);
+      const riskSignals = detectRiskSignals(followUp.content, followUp.support);
+      const created = database.createFollowUp({
         id: generateId(),
         storyId: story.id,
         authorAccountId: accountId,
-        ...normaliseFollowUpInput(input),
+        ...followUp,
+        riskSignals,
         createdAt: now()
       });
+      // Private updates never reach reviewers, but the writer is still offered care.
+      return riskSignals.length && !created.careSuggested
+        ? Object.freeze({ ...created, careSuggested: true })
+        : created;
     }
   });
 }

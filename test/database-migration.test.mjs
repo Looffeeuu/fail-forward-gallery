@@ -34,11 +34,20 @@ test('V0.2 moderation tables are migrated without losing decisions', (t) => {
       actor_account_id TEXT REFERENCES accounts(id),
       action TEXT NOT NULL CHECK (action IN ('submitted', 'approved', 'rejected')), reason TEXT,
       created_at TEXT NOT NULL);
+    CREATE TABLE comments (id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      response_type TEXT NOT NULL, body TEXT NOT NULL,
+      moderation_status TEXT NOT NULL DEFAULT 'pending-human-review'
+        CHECK (moderation_status IN ('pending-human-review', 'approved', 'rejected', 'withdrawn')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, published_at TEXT);
     INSERT INTO accounts VALUES ('author', 'author-phone', 'member', 'active', 't', 't');
     INSERT INTO stories VALUES ('story-1', 'author', 'academic', 'Kept', 'Body', 'advice',
       'anonymous-public', 'approved', 't', 't', 't');
     INSERT INTO moderation_cases VALUES ('case-1', 'story', 'story-1', 'not-configured',
       'approved', 'Meets the guidelines.', 't', NULL, 't', 't');
+    INSERT INTO comments VALUES ('old-comment', 'story-1', 'author', 'advice', 'Kept across rebuilds.',
+      'approved', 't', 't', 't');
     INSERT INTO moderation_events VALUES ('event-1', 'case-1', 'author', 'submitted', NULL,
       '2026-09-15T00:00:00.000Z');
   `);
@@ -46,6 +55,9 @@ test('V0.2 moderation tables are migrated without losing decisions', (t) => {
 
   const database = createDatabase(databasePath);
   t.after(() => database.close());
+
+  // Rebuilding the stories table must not detach or delete its responses.
+  assert.equal(database.listPublishedStories()[0].comments[0].content, 'Kept across rebuilds.');
 
   assert.deepEqual(
     database.listModerationEvents('story-1').map(({ action }) => action),

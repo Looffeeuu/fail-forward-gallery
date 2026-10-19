@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 const REVIEWER_ROLES = new Set(['moderator', 'administrator']);
-const DECISIONS = new Set(['approve', 'reject']);
-const APPEAL_DECISIONS = new Set(['overturn', 'uphold']);
-const REPORT_DECISIONS = new Set(['remove', 'dismiss']);
+const DECISIONS = new Set(['approve', 'reject', 'safety-hold']);
 const CONTENT_TYPES = new Set(['story', 'comment', 'follow_up']);
+// Decisions on held content, mapped to the database's decision names.
+const HELD_DECISIONS = Object.freeze({ release: 'release', reject: 'reject-held' });
+const APPEAL_DECISIONS = new Set(['overturn', 'uphold']);
+const REPORT_DECISIONS = new Set(['remove', 'dismiss', 'safety-hold']);
 
 export class ModerationError extends Error {
   constructor(code, status, message) {
@@ -164,6 +166,40 @@ export function createModerationService({
       return Object.freeze({ storyId });
     },
 
+    // Safety holds: unpublished for care rather than for breaking rules.
+    listHeldContent(session) {
+      requireReviewer(session);
+      return database.listHeldContent();
+    },
+
+    decideHeld({ session, contentType, contentId, input }) {
+      requireReviewer(session);
+      if (!CONTENT_TYPES.has(contentType)) {
+        throw new ModerationError('invalid-content', 400, 'Choose valid held content.');
+      }
+      const { id, decision, reason } = normaliseDecisionInput(
+        contentId,
+        input,
+        { code: 'invalid-content', message: 'Choose valid held content.' },
+        new Set(Object.keys(HELD_DECISIONS))
+      );
+      const decide = {
+        story: (args) => database.moderateStory({ storyId: id, ...args }),
+        comment: (args) => database.moderateComment({ commentId: id, ...args }),
+        follow_up: (args) => database.moderateFollowUp({ followUpId: id, ...args })
+      }[contentType];
+      const result = decide({
+        decision: HELD_DECISIONS[decision],
+        reason,
+        reviewerAccountId: session.accountId,
+        decidedAt: now()
+      });
+      if (!result) {
+        throw new ModerationError('review-conflict', 409, 'This content is no longer held.');
+      }
+      return result;
+    },
+
     listReportedContent(session) {
       requireReviewer(session);
       return database.listReportedContent();
@@ -195,7 +231,11 @@ export function createModerationService({
           'These reports were already handled, or the content is no longer public.'
         );
       }
-      return Object.freeze({ contentType, contentId: id, status: decision === 'remove' ? 'removed' : 'kept' });
+      return Object.freeze({
+        contentType,
+        contentId: id,
+        status: { remove: 'removed', dismiss: 'kept', 'safety-hold': 'safety-hold' }[decision]
+      });
     },
 
     decideStory({ session, storyId, input }) {

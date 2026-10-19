@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, safety holds, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -719,7 +719,7 @@ paths:
               properties:
                 decision:
                   type: string
-                  enum: [remove, dismiss]
+                  enum: [remove, dismiss, safety-hold]
                 reason:
                   type: string
                   minLength: 8
@@ -742,7 +742,7 @@ paths:
                         type: string
                       status:
                         type: string
-                        enum: [removed, kept]
+                        enum: [removed, kept, safety-hold]
         '400':
           description: The decision or reason is invalid.
           content:
@@ -882,6 +882,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/moderation/safety-holds:
+    get:
+      summary: List content held for safety
+      operationId: listHeldContent
+      description: Content unpublished for care rather than for breaking rules, with the internal hold note. It stays here until a reviewer releases it or declines to publish it.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [held]
+                properties:
+                  held:
+                    type: array
+                    items:
+                      type: object
+                      required: [contentType, content]
+                      properties:
+                        contentType:
+                          type: string
+                          enum: [story, comment, follow_up]
+                        content:
+                          $ref: '#/components/schemas/OwnedContent'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/moderation/safety-holds/{contentPath}/{contentId}/decision:
+    post:
+      summary: Release held content or decline to publish it
+      operationId: decideHeldContent
+      description: release publishes the content. reject turns the hold into an ordinary rejection whose reason the author sees and may appeal.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/ContentPath'
+        - $ref: '#/components/parameters/ContentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reason]
+              properties:
+                decision:
+                  type: string
+                  enum: [release, reject]
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 500
+      responses:
+        '200':
+          description: Decision recorded.
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The content is no longer held.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -930,7 +1000,8 @@ paths:
               properties:
                 decision:
                   type: string
-                  enum: [approve, reject]
+                  enum: [approve, reject, safety-hold]
+                  description: safety-hold keeps the content private for care, not as a rule violation; it cannot be appealed and the reason stays internal.
                 reason:
                   type: string
                   minLength: 8
@@ -1220,13 +1291,13 @@ components:
           const: anonymous-public
         moderationStatus:
           type: string
-          enum: [pending-human-review, approved, rejected, withdrawn]
+          enum: [pending-human-review, approved, rejected, withdrawn, safety-hold]
         automatedReviewStatus:
           type: string
           enum: [not-configured, passed, rejected, needs-human-review]
         humanReviewStatus:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, safety-hold]
         tags:
           type: array
           items:
@@ -1278,6 +1349,14 @@ components:
           oneOf:
             - type: string
               format: date-time
+            - type: 'null'
+        careSuggested:
+          type: boolean
+          description: Owner view only. True while flagged content awaits review or is held for safety; the client then shows caring support information. Internal hold notes and risk labels are never sent to authors.
+        riskSignal:
+          oneOf:
+            - type: string
+              description: Reviewer view only. Comma-separated keyword hints (self-harm, harm-to-others).
             - type: 'null'
         stats:
           type: object
@@ -1354,7 +1433,7 @@ components:
                 type: string
               kind:
                 type: string
-                enum: [approved, rejected, appeal-overturned, appeal-upheld, removed, report-actioned, report-dismissed]
+                enum: [approved, rejected, appeal-overturned, appeal-upheld, removed, report-actioned, report-dismissed, safety-hold]
               contentType:
                 type: string
                 enum: [story, comment, follow_up]
@@ -1432,7 +1511,7 @@ components:
       properties:
         decision:
           type: string
-          enum: [approve, reject]
+          enum: [approve, reject, safety-hold]
         reason:
           type: string
           minLength: 8
@@ -1515,13 +1594,13 @@ components:
           type: string
         moderationStatus:
           type: string
-          enum: [pending-human-review, approved, rejected, withdrawn]
+          enum: [pending-human-review, approved, rejected, withdrawn, safety-hold]
         automatedReviewStatus:
           type: string
           enum: [not-configured, passed, rejected, needs-human-review]
         humanReviewStatus:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, safety-hold]
         createdAt:
           type: string
           format: date-time
@@ -1590,13 +1669,13 @@ components:
           enum: [anonymous-public, private]
         moderationStatus:
           type: string
-          enum: [pending-human-review, approved, rejected, private, withdrawn]
+          enum: [pending-human-review, approved, rejected, private, withdrawn, safety-hold]
         automatedReviewStatus:
           type: string
           enum: [not-configured, passed, rejected, needs-human-review]
         humanReviewStatus:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, safety-hold]
         createdAt:
           type: string
           format: date-time

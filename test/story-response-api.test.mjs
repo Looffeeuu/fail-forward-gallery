@@ -237,6 +237,16 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   const picked = await visitor.send('/api/v1/rankings');
   assert.equal(picked.payload.rankings.recommended[0].reason, 'A thoughtful account of a hard season.');
 
+  // The safety-hold queue is for reviewers only.
+  assert.equal((await reader.send('/api/v1/moderation/safety-holds')).status, 403);
+  const heldQueue = await moderator.send('/api/v1/moderation/safety-holds');
+  assert.deepEqual(heldQueue.payload.held, []);
+  const strayRelease = await moderator.send(
+    `/api/v1/moderation/safety-holds/stories/${story.id}/decision`,
+    { method: 'POST', body: { decision: 'release', reason: 'Nothing is actually held here.' } }
+  );
+  assert.equal(strayRelease.status, 409);
+
   // Reports: signed-in readers only; reviewers see them grouped and decide once.
   const anonymousReport = await visitor.send(`/api/v1/stories/${story.id}/reports`, {
     method: 'POST',

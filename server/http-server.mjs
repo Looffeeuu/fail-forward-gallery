@@ -24,7 +24,8 @@ const PUBLIC_FILES = new Set([
   'i18n.js',
   'runtime-config.js',
   'auth.js',
-  'auth-http-adapter.js'
+  'auth-http-adapter.js',
+  'care-resources.js'
 ]);
 
 const CONTENT_TYPES = Object.freeze({
@@ -431,6 +432,30 @@ export function createHttpServer({
           : moderationService.unrecommendStory({ session, storyId });
         rankingService.invalidate();
         sendJson(response, 200, { recommendation: result });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/moderation/safety-holds') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, { held: moderationService.listHeldContent(session) });
+        return;
+      }
+
+      const heldDecisionMatch = url.pathname.match(
+        /^\/api\/v1\/moderation\/safety-holds\/(stories|comments|follow-ups)\/([^/]+)\/decision$/
+      );
+      if (request.method === 'POST' && heldDecisionMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 200, {
+          content: moderationService.decideHeld({
+            session,
+            contentType: CONTENT_TYPES_BY_PATH[heldDecisionMatch[1]],
+            contentId: decodeURIComponent(heldDecisionMatch[2]),
+            input: body
+          })
+        });
         return;
       }
 

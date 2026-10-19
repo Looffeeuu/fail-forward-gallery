@@ -143,14 +143,20 @@ const MODERATION_ACTIONS = Object.freeze({
   comment: 'decideComment',
   'follow-up': 'decideFollowUp',
   appeal: 'decideAppeal',
-  report: 'decideReportedContent'
+  report: 'decideReportedContent',
+  held: 'decideHeldContent'
 });
 const MODERATION_DECISIONS = Object.freeze({
-  story: ['approve', 'reject'],
-  comment: ['approve', 'reject'],
-  'follow-up': ['approve', 'reject'],
+  story: ['approve', 'reject', 'safety-hold'],
+  comment: ['approve', 'reject', 'safety-hold'],
+  'follow-up': ['approve', 'reject', 'safety-hold'],
   appeal: ['overturn', 'uphold'],
-  report: ['remove', 'dismiss']
+  report: ['remove', 'dismiss', 'safety-hold'],
+  held: ['release', 'reject']
+});
+const RISK_SIGNAL_LABELS = Object.freeze({
+  'self-harm': ['可能涉及自伤或轻生', 'May involve self-harm or suicide'],
+  'harm-to-others': ['可能涉及伤害他人', 'May involve harming others']
 });
 
 const followUpState = {
@@ -1399,8 +1405,9 @@ async function submitFollowUpToServer(form, story) {
   submitButton.disabled = true;
   status.textContent = tagUiState.language === 'zh' ? '正在提交……' : 'Submitting...';
 
+  let created;
   try {
-    await window.FFG_CONTENT_API.createFollowUp(story.id, {
+    created = await window.FFG_CONTENT_API.createFollowUp(story.id, {
       status: formData.get('follow-up-status'),
       content: String(formData.get('follow-up-text') || '').trim(),
       support: String(formData.get('follow-up-support') || '').trim(),
@@ -1414,7 +1421,7 @@ async function submitFollowUpToServer(form, story) {
 
   loadMyStories();
   if (String(appState.activeStoryId) !== String(story.id)) return;
-  followUpState.pendingFollowUp = { visibility };
+  followUpState.pendingFollowUp = { visibility, careSuggested: created.careSuggested };
   followUpState.phase = visibility === 'private' ? 'saved-private' : 'submitted-for-review';
   renderFollowUpReviewState(story);
   document.getElementById('follow-up-review-status')?.focus();
@@ -1602,6 +1609,7 @@ function renderFollowUpReviewState(story) {
       <div id="follow-up-review-status" role="status" aria-live="polite" tabindex="-1">
         ${phaseContent[followUpState.phase] || phaseContent.checking}
       </div>
+      ${serverPhase && draft.careSuggested ? renderCarePanel() : ''}
       ${!['checking', 'approved'].includes(followUpState.phase) ? `
         <button type="button" class="btn btn-secondary review-back-button" data-followup-action="back-to-story">
           ${useChinese ? '返回故事' : 'Back to story'}
@@ -1950,6 +1958,39 @@ async function handleRecommendAction(action) {
 }
 
 // Figures are private to the author; public pages only show ranking order.
+// Shown when someone's own words suggest they may be in danger. It does not
+// diagnose or judge; it points to people who can help. Resources come only from
+// the team-verified list in care-resources.js; emergency numbers are mainland China's.
+function renderCarePanel() {
+  const useChinese = tagUiState.language === 'zh';
+  const resources = window.FFG_CARE_RESOURCES?.resources || [];
+  return `
+    <aside class="care-panel" role="note">
+      <strong>${useChinese ? '你不必一个人扛着' : 'You do not have to carry this alone'}</strong>
+      <p>${useChinese
+        ? '从你写下的内容里，我们感觉你可能正经历很艰难的时刻。如果你有伤害自己的想法，或觉得自己可能有危险，请尽快联系身边信任的人、学校心理健康中心或辅导员。'
+        : 'What you wrote suggests you may be going through a very hard time. If you are thinking about hurting yourself or feel you may be in danger, please reach out soon to someone you trust, your university counselling centre, or a tutor.'}</p>
+      <p>${useChinese
+        ? '如果情况紧急，请立即拨打 120（急救）或 110（报警）。'
+        : 'If it is an emergency, call your local emergency number now (in mainland China: 120 for medical help, 110 for police).'}</p>
+      ${resources.length ? `
+        <ul class="care-resources">
+          ${resources.map((resource) => `
+            <li>
+              <strong>${escapeHtml(useChinese ? resource.name : resource.nameEn || resource.name)}</strong>
+              <span>${escapeHtml(resource.contact)}${resource.hours ? ` · ${escapeHtml(useChinese ? resource.hours : resource.hoursEn || resource.hours)}` : ''}</span>
+              ${resource.note ? `<small>${escapeHtml(useChinese ? resource.note : resource.noteEn || resource.note)}</small>` : ''}
+            </li>
+          `).join('')}
+        </ul>
+      ` : ''}
+      <small>${useChinese
+        ? 'Fail Forward Gallery 是同伴支持平台，不能代替专业帮助或紧急救援。'
+        : 'Fail Forward Gallery offers peer support; it cannot replace professional help or emergency services.'}</small>
+    </aside>
+  `;
+}
+
 function renderOwnerStats(story) {
   if (!story.stats || !['approved', 'withdrawn', 'rejected'].includes(story.moderationStatus)) return '';
   if (story.moderationStatus !== 'approved' && story.stats.totalViews === 0) return '';
@@ -2104,11 +2145,13 @@ async function submitCommentToServer(form, story) {
   submitButton.disabled = true;
   status.textContent = tagUiState.language === 'zh' ? '正在提交……' : 'Submitting...';
   try {
-    await window.FFG_CONTENT_API.createComment(story.id, { content });
+    const created = await window.FFG_CONTENT_API.createComment(story.id, { content });
     textarea.value = '';
     status.textContent = tagUiState.language === 'zh'
       ? '已提交人工审核。通过后会匿名显示在这里；你可以在“我的故事”中查看状态。'
       : 'Submitted for human review. Once approved it will appear here anonymously; you can follow the status in My stories.';
+    form.querySelector('.care-panel')?.remove();
+    if (created.careSuggested) status.insertAdjacentHTML('afterend', renderCarePanel());
     loadMyStories();
   } catch (error) {
     status.textContent = getResponseErrorMessage(error.code);
@@ -2269,12 +2312,13 @@ async function loadModerationStories() {
   renderModeration(authState);
 
   try {
-    const [storyQueue, commentQueue, followUpQueue, appealQueue, reportQueue] = await Promise.all([
+    const [storyQueue, commentQueue, followUpQueue, appealQueue, reportQueue, heldQueue] = await Promise.all([
       window.FFG_CONTENT_API.listModerationStories(),
       window.FFG_CONTENT_API.listModerationComments(),
       window.FFG_CONTENT_API.listModerationFollowUps(),
       window.FFG_CONTENT_API.listModerationAppeals(),
-      window.FFG_CONTENT_API.listReportedContent()
+      window.FFG_CONTENT_API.listReportedContent(),
+      window.FFG_CONTENT_API.listHeldContent()
     ]);
     if (requestVersion !== moderationState.requestVersion) return;
     // Safety concerns first; otherwise oldest first across all types, so nothing
@@ -2284,9 +2328,10 @@ async function loadModerationStories() {
       ...commentQueue.map((item) => ({ contentType: 'comment', item })),
       ...followUpQueue.map((item) => ({ contentType: 'follow-up', item })),
       ...appealQueue.map((item) => ({ contentType: 'appeal', item })),
-      ...reportQueue.map((item) => ({ contentType: 'report', item }))
+      ...reportQueue.map((item) => ({ contentType: 'report', item })),
+      ...heldQueue.map((item) => ({ contentType: 'held', item }))
     ].sort((first, second) => (
-      Number(Boolean(second.item.hasSafetyConcern)) - Number(Boolean(first.item.hasSafetyConcern))
+      Number(isUrgentModerationItem(second.item)) - Number(isUrgentModerationItem(first.item))
       || first.item.createdAt.localeCompare(second.item.createdAt)
     ));
     moderationState.loaded = true;
@@ -2374,15 +2419,26 @@ function getModerationDecisionMessage(contentType, decision) {
     },
     report: {
       remove: ['内容已移除，作者和举报人都会收到通知；作者可以申诉。', 'The content was removed. The author and reporters are notified, and the author may appeal.'],
-      dismiss: ['已保留内容，举报人会收到处理结果。', 'The content stays public. Reporters are told the outcome.']
+      dismiss: ['已保留内容，举报人会收到处理结果。', 'The content stays public. Reporters are told the outcome.'],
+      'safety-hold': ['内容已暂停公开并转入安全保留，作者会看到关怀说明。', 'The content is unpublished and held for safety; the author sees a caring message.']
+    },
+    held: {
+      release: ['已解除保留，内容现已公开。', 'The hold was released and the content is now public.'],
+      reject: ['已转为不予发布，作者会看到理由并可以申诉。', 'The content will not be published; the author sees the reason and may appeal.']
     }
   };
+  if (decision === 'safety-hold' && !messages[contentType]?.[decision]) {
+    return useChinese
+      ? '内容已转入安全保留，不会公开；作者会看到关怀说明，你可以稍后在队列中继续跟进。'
+      : 'The content is held for safety and will not be published. The author sees a caring message; follow up from this queue later.';
+  }
   return messages[contentType][decision][useChinese ? 0 : 1];
 }
 
 function renderModerationItem({ contentType, item }) {
   if (contentType === 'appeal') return renderAppealModerationItem(item);
   if (contentType === 'report') return renderReportModerationItem(item);
+  if (contentType === 'held') return renderHeldModerationItem(item);
   const useChinese = tagUiState.language === 'zh';
   const reasonId = `review-reason-${contentType}-${item.id}`;
   const automatedLabel = item.automatedReviewStatus === 'not-configured' || !item.automatedReviewStatus
@@ -2435,7 +2491,7 @@ function renderModerationItem({ contentType, item }) {
   }
 
   return `
-    <article class="moderation-item">
+    <article class="moderation-item${item.riskSignal ? ' is-safety' : ''}">
       <div class="moderation-item-heading">
         <div>
           <span class="story-board">${escapeHtml(kicker)}</span>
@@ -2443,6 +2499,7 @@ function renderModerationItem({ contentType, item }) {
         </div>
         <span class="review-status">${useChinese ? '待人工审核' : 'Pending human review'}</span>
       </div>
+      ${renderRiskSignalNote(item.riskSignal)}
       ${body}
       <dl class="my-story-meta">
         ${contentType === 'story'
@@ -2457,6 +2514,7 @@ function renderModerationItem({ contentType, item }) {
         <div class="moderation-actions">
           <button type="submit" class="btn btn-primary" data-review-decision="approve">${approveLabel}</button>
           <button type="submit" class="btn btn-reject" data-review-decision="reject">${useChinese ? '拒绝发布' : 'Reject publication'}</button>
+          <button type="submit" class="btn btn-care" data-review-decision="safety-hold">${useChinese ? '安全保留' : 'Hold for safety'}</button>
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
@@ -2491,6 +2549,60 @@ function getContentTypeLabel(contentType) {
     comment: useChinese ? '回应' : 'Response',
     follow_up: useChinese ? '后续' : 'Follow-up'
   }[contentType];
+}
+
+function isUrgentModerationItem(item) {
+  return Boolean(item.hasSafetyConcern || item.riskSignal || item.content?.riskSignal);
+}
+
+function renderRiskSignalNote(riskSignal) {
+  if (!riskSignal) return '';
+  const useChinese = tagUiState.language === 'zh';
+  const labels = riskSignal.split(',')
+    .map((code) => RISK_SIGNAL_LABELS[code]?.[useChinese ? 0 : 1])
+    .filter(Boolean);
+  return `
+    <p class="appeal-self-review-note risk-signal-note">
+      ${escapeHtml(useChinese ? `危险信号提示：${labels.join('、')}。` : `Danger signal: ${labels.join('; ')}.`)}
+      ${useChinese
+        ? '这是关键词提示，可能误报，请结合上下文判断；如果作者可能处于危险中，请选择“安全保留”。'
+        : 'This is a keyword hint and may be wrong. Judge in context; if the writer may be in danger, hold it for safety.'}
+    </p>
+  `;
+}
+
+// Held content waits here until a reviewer releases it or declines to publish it.
+function renderHeldModerationItem(entry) {
+  const useChinese = tagUiState.language === 'zh';
+  const { contentType, content } = entry;
+  const reasonId = `review-reason-held-${entry.id.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  return `
+    <article class="moderation-item is-held">
+      <div class="moderation-item-heading">
+        <div>
+          <span class="story-board">${escapeHtml(`${useChinese ? '安全保留中' : 'Held for safety'} · ${getContentTypeLabel(contentType)}`)}</span>
+          <h3>${escapeHtml(getContentHeading(contentType, content))}</h3>
+        </div>
+        <span class="review-status">${useChinese ? '待跟进' : 'Needs follow-up'}</span>
+      </div>
+      ${renderRiskSignalNote(content.riskSignal)}
+      ${renderModerationContentBody(contentType, content)}
+      <div class="review-reason">
+        <strong>${useChinese ? '保留说明（仅审核团队可见）' : 'Hold note (review team only)'}</strong>
+        <p>${escapeHtml(content.decisionReason || '')}</p>
+        ${content.decidedAt ? `<small>${escapeHtml(formatOwnedStoryDate(content.decidedAt))}</small>` : ''}
+      </div>
+      <form class="moderation-decision-form" data-moderation-form data-content-type="held" data-content-id="${escapeHtml(entry.id)}">
+        <label for="${escapeHtml(reasonId)}">${useChinese ? '跟进说明（必填；转为不予发布时会显示给作者）' : 'Follow-up note (required; shown to the author if not published)'}</label>
+        <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required></textarea>
+        <div class="moderation-actions">
+          <button type="submit" class="btn btn-primary" data-review-decision="release">${useChinese ? '解除保留并发布' : 'Release and publish'}</button>
+          <button type="submit" class="btn btn-reject" data-review-decision="reject">${useChinese ? '转为不予发布' : 'Do not publish'}</button>
+        </div>
+        <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
+      </form>
+    </article>
+  `;
 }
 
 // Reports on one item are shown together, without reporter identities.
@@ -2530,6 +2642,7 @@ function renderReportModerationItem(group) {
         <div class="moderation-actions">
           <button type="submit" class="btn btn-reject" data-review-decision="remove">${useChinese ? '移除内容' : 'Remove content'}</button>
           <button type="submit" class="btn btn-secondary" data-review-decision="dismiss">${useChinese ? '保留内容' : 'Keep content'}</button>
+          <button type="submit" class="btn btn-care" data-review-decision="safety-hold">${useChinese ? '安全保留' : 'Hold for safety'}</button>
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
@@ -2688,6 +2801,7 @@ function getReviewStatusLabel(moderationStatus) {
     rejected: { zh: '审核未通过', en: 'Not approved' },
     withdrawn: { zh: '已撤回', en: 'Withdrawn' },
     private: { zh: '仅自己可见', en: 'Private to you' },
+    'safety-hold': { zh: '暂缓公开 · 关怀优先', en: 'Not public for now · care first' },
     'pending-human-review': { zh: '待人工审核', en: 'Pending human review' }
   };
   const label = labels[moderationStatus] || labels['pending-human-review'];
@@ -2758,6 +2872,7 @@ function getNotificationText(notification) {
       : (useChinese ? `你举报的${reported}经复查后未发现违反社区规范，已保留。` : `You reported ${reported}; a reviewer found no rule was broken, so it stays.`);
   }
   const outcomes = {
+    'safety-hold': ['暂时没有公开。我们想先确认你一切安好，请查看“我的账户”里的说明。', 'is not public for now. We want to check that you are okay first; see My account.'],
     removed: ['因被举报，经审核员复查后已从公开页面移除。可以在下方查看理由，或提交申诉。', 'was removed from public pages after a report. See the reason below, or appeal.'],
     approved: ['已通过审核并公开。', 'was approved and is now public.'],
     rejected: ['未通过审核。可以在下方查看审核说明，或提交申诉。', 'was not approved. See the review note below, or appeal.'],
@@ -2999,6 +3114,7 @@ function renderOwnedFollowUps(followUps) {
             </div>
             ${followUp.content ? `<p>${escapeHtml(truncateText(followUp.content, 200))}</p>` : ''}
             <small>${escapeHtml(formatOwnedStoryDate(followUp.createdAt))}</small>
+            ${followUp.careSuggested ? renderCarePanel() : ''}
             ${renderReviewNote(followUp)}
             ${renderAppealOutcome(followUp)}
             ${renderOwnerControls('follow_up', followUp)}
@@ -3036,6 +3152,7 @@ function renderMyComments(signedIn) {
         </div>
         <p class="my-story-excerpt">${escapeHtml(truncateText(comment.content, 260))}</p>
         <small>${escapeHtml(formatOwnedStoryDate(comment.createdAt))}</small>
+        ${comment.careSuggested ? renderCarePanel() : ''}
         ${renderReviewNote(comment)}
         ${renderAppealOutcome(comment)}
         ${renderOwnerControls('comment', comment)}
@@ -3098,6 +3215,10 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
           ? (useChinese
             ? '人工审核已经完成，这篇故事目前不会公开。'
             : 'Human review is complete and this story is not public.')
+          : story.moderationStatus === 'safety-hold'
+            ? (useChinese
+              ? '审核员暂时没有公开这篇故事。这不是因为你写错了什么——我们想先确认你现在一切安好。你可以随时撤回它。'
+              : 'A reviewer has not published this story for now. You did nothing wrong; we want to check that you are okay first. You can withdraw it at any time.')
           : story.moderationStatus === 'withdrawn'
             ? (useChinese
               ? '你已撤回这篇故事，它不会再公开或进入审核。'
@@ -3123,6 +3244,7 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
         </dl>
         <p class="moderation-note">${escapeHtml(moderationNote)}</p>
         ${renderOwnerStats(story)}
+        ${story.careSuggested ? renderCarePanel() : ''}
         ${renderReviewNote(story)}
         ${renderAppealOutcome(story)}
         ${renderOwnerControls('story', story)}
@@ -3269,7 +3391,12 @@ function getSubmissionErrorMessage(error) {
     || (useChinese ? '投稿暂时没有完成，请稍后重试。' : 'The submission could not be completed. Please try again.');
 }
 
-function showSubmissionSuccess({ mode, persisted = false }) {
+function showSubmissionSuccess({ mode, persisted = false, careSuggested = false }) {
+  const care = document.getElementById('submit-care');
+  if (care) {
+    care.hidden = !careSuggested;
+    care.innerHTML = careSuggested ? renderCarePanel() : '';
+  }
   const form = document.getElementById('submit-form');
   const success = document.getElementById('submit-success');
   const badge = document.getElementById('submit-success-badge');
@@ -3406,7 +3533,7 @@ function initSubmitForm() {
           moderationState.loaded = false;
           loadModerationStories();
         }
-        showSubmissionSuccess({ mode: 'server' });
+        showSubmissionSuccess({ mode: 'server', careSuggested: story.careSuggested });
       } else {
         const { story, persisted } = createDemoStory(form);
         appState.lastSubmittedStoryId = story.id;

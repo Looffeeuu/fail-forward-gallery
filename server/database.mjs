@@ -19,6 +19,31 @@ function prepareForEachContentType(database, buildSql) {
   );
 }
 
+// What each human decision does. `from` is the status the content must still
+// have, so a stale or repeated decision changes nothing.
+const DECISION_OUTCOMES = Object.freeze({
+  approve: { from: 'pending-human-review', status: 'approved', event: 'approved', notice: 'approved' },
+  reject: { from: 'pending-human-review', status: 'rejected', event: 'rejected', notice: 'rejected' },
+  'safety-hold': {
+    from: 'pending-human-review', status: 'safety-hold', event: 'safety-held', notice: 'safety-hold'
+  },
+  release: { from: 'safety-hold', status: 'approved', event: 'safety-released', notice: 'approved' },
+  'reject-held': { from: 'safety-hold', status: 'rejected', event: 'rejected', notice: 'rejected' }
+});
+
+// Authors never see internal safety notes or the risk label. Instead they are
+// offered care while a flagged item awaits review or is held for safety.
+function forOwner(item) {
+  if (!item) return item;
+  const { riskSignal, ...owned } = item;
+  const held = owned.moderationStatus === 'safety-hold';
+  return Object.freeze({
+    ...owned,
+    decisionReason: held ? null : owned.decisionReason,
+    careSuggested: held || (Boolean(riskSignal) && owned.moderationStatus === 'pending-human-review')
+  });
+}
+
 // Shared by fresh databases and migrations, so both always build the same table.
 function moderationCasesTableSql(name) {
   return `
@@ -29,7 +54,8 @@ function moderationCasesTableSql(name) {
       automated_status TEXT NOT NULL DEFAULT 'not-configured'
         CHECK (automated_status IN ('not-configured', 'passed', 'rejected', 'needs-human-review')),
       human_status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (human_status IN ('pending', 'approved', 'rejected')),
+        CHECK (human_status IN ('pending', 'approved', 'rejected', 'safety-hold')),
+      risk_signal TEXT,
       decision_reason TEXT,
       decided_at TEXT,
       decided_by_account_id TEXT REFERENCES accounts(id),
@@ -47,10 +73,94 @@ function moderationEventsTableSql(name) {
       actor_account_id TEXT REFERENCES accounts(id),
       action TEXT NOT NULL CHECK (action IN (
         'submitted', 'approved', 'rejected', 'withdrawn',
-        'appealed', 'appeal-upheld', 'appeal-overturned', 'removed', 'reports-dismissed'
+        'appealed', 'appeal-upheld', 'appeal-overturned', 'removed', 'reports-dismissed',
+        'safety-held', 'safety-released'
       )),
       reason TEXT,
       created_at TEXT NOT NULL
+    )
+  `;
+}
+
+function storiesTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      board TEXT NOT NULL CHECK (board IN ('academic', 'job', 'social')),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      response_preference TEXT NOT NULL
+        CHECK (response_preference IN ('none', 'encouragement', 'similar', 'advice')),
+      visibility TEXT NOT NULL DEFAULT 'anonymous-public'
+        CHECK (visibility IN ('anonymous-public')),
+      moderation_status TEXT NOT NULL DEFAULT 'pending-human-review'
+        CHECK (moderation_status IN (
+          'pending-human-review', 'approved', 'rejected', 'withdrawn', 'safety-hold'
+        )),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      published_at TEXT
+    )
+  `;
+}
+
+function commentsTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      response_type TEXT NOT NULL
+        CHECK (response_type IN ('encouragement', 'similar', 'advice')),
+      body TEXT NOT NULL,
+      moderation_status TEXT NOT NULL DEFAULT 'pending-human-review'
+        CHECK (moderation_status IN (
+          'pending-human-review', 'approved', 'rejected', 'withdrawn', 'safety-hold'
+        )),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      published_at TEXT
+    )
+  `;
+}
+
+function followUpsTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN (
+        'still-difficult', 'no-major-change', 'small-steps', 'better-than-before', 'prefer-not-to-say'
+      )),
+      body TEXT NOT NULL DEFAULT '',
+      support TEXT NOT NULL DEFAULT '',
+      visibility TEXT NOT NULL CHECK (visibility IN ('anonymous-public', 'private')),
+      moderation_status TEXT NOT NULL
+        CHECK (moderation_status IN (
+          'pending-human-review', 'approved', 'rejected', 'private', 'withdrawn', 'safety-hold'
+        )),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      published_at TEXT
+    )
+  `;
+}
+
+function notificationsTableSql(name) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${name} (
+      id TEXT PRIMARY KEY,
+      recipient_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN (
+        'approved', 'rejected', 'appeal-overturned', 'appeal-upheld',
+        'removed', 'report-actioned', 'report-dismissed', 'safety-hold'
+      )),
+      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
+      content_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_at TEXT
     )
   `;
 }
@@ -84,28 +194,79 @@ function rebuildTableIfOutdated(database, { name, isCurrent, createSql, columns,
   }
 }
 
-function migrateModerationTables(database) {
-  // V0.2 limited moderation cases to stories and tied them to the stories table.
-  rebuildTableIfOutdated(database, {
-    name: 'moderation_cases',
-    isCurrent: (sql) => sql.includes("'comment'"),
-    createSql: moderationCasesTableSql,
-    columns: [
-      'id', 'content_type', 'content_id', 'automated_status', 'human_status',
-      'decision_reason', 'decided_at', 'decided_by_account_id', 'created_at', 'updated_at'
-    ],
-    indexSql: `CREATE INDEX IF NOT EXISTS moderation_content_index
-      ON moderation_cases(content_type, content_id)`
-  });
-  // Earlier versions only recorded submissions and first decisions.
-  rebuildTableIfOutdated(database, {
-    name: 'moderation_events',
-    isCurrent: (sql) => sql.includes("'reports-dismissed'"),
-    createSql: moderationEventsTableSql,
-    columns: ['id', 'moderation_case_id', 'actor_account_id', 'action', 'reason', 'created_at'],
-    indexSql: `CREATE INDEX IF NOT EXISTS moderation_events_case_index
-      ON moderation_events(moderation_case_id, created_at)`
-  });
+// Each entry rebuilds a table created by an older version whose CHECK
+// constraints or foreign keys no longer match; the marker is a value only the
+// current definition contains. Columns are those every older version has.
+function migrateTables(database) {
+  const contentColumns = ['moderation_status', 'created_at', 'updated_at', 'published_at'];
+  [
+    {
+      name: 'moderation_cases',
+      marker: "'safety-hold'",
+      createSql: moderationCasesTableSql,
+      columns: [
+        'id', 'content_type', 'content_id', 'automated_status', 'human_status',
+        'decision_reason', 'decided_at', 'decided_by_account_id', 'created_at', 'updated_at'
+      ],
+      indexSql: `CREATE INDEX IF NOT EXISTS moderation_content_index
+        ON moderation_cases(content_type, content_id)`
+    },
+    {
+      name: 'moderation_events',
+      marker: "'safety-held'",
+      createSql: moderationEventsTableSql,
+      columns: ['id', 'moderation_case_id', 'actor_account_id', 'action', 'reason', 'created_at'],
+      indexSql: `CREATE INDEX IF NOT EXISTS moderation_events_case_index
+        ON moderation_events(moderation_case_id, created_at)`
+    },
+    {
+      name: 'stories',
+      marker: "'safety-hold'",
+      createSql: storiesTableSql,
+      columns: [
+        'id', 'author_account_id', 'board', 'title', 'body', 'response_preference', 'visibility',
+        ...contentColumns
+      ],
+      indexSql: `CREATE INDEX IF NOT EXISTS stories_author_created_index
+          ON stories(author_account_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS stories_moderation_index
+          ON stories(moderation_status, created_at DESC)`
+    },
+    {
+      name: 'comments',
+      marker: "'safety-hold'",
+      createSql: commentsTableSql,
+      columns: ['id', 'story_id', 'author_account_id', 'response_type', 'body', ...contentColumns],
+      indexSql: `CREATE INDEX IF NOT EXISTS comments_story_index
+          ON comments(story_id, moderation_status, published_at);
+        CREATE INDEX IF NOT EXISTS comments_author_index
+          ON comments(author_account_id, created_at DESC)`
+    },
+    {
+      name: 'follow_ups',
+      marker: "'safety-hold'",
+      createSql: followUpsTableSql,
+      columns: [
+        'id', 'story_id', 'author_account_id', 'status', 'body', 'support', 'visibility',
+        ...contentColumns
+      ],
+      indexSql: `CREATE INDEX IF NOT EXISTS follow_ups_story_index
+        ON follow_ups(story_id, created_at)`
+    },
+    {
+      name: 'notifications',
+      marker: "'safety-hold'",
+      createSql: notificationsTableSql,
+      columns: [
+        'id', 'recipient_account_id', 'kind', 'content_type', 'content_id', 'created_at', 'read_at'
+      ],
+      indexSql: `CREATE INDEX IF NOT EXISTS notifications_recipient_index
+        ON notifications(recipient_account_id, created_at DESC)`
+    }
+  ].forEach(({ marker, ...table }) => rebuildTableIfOutdated(database, {
+    ...table,
+    isCurrent: (sql) => sql.includes(marker)
+  }));
 }
 
 export function createDatabase(databasePath) {
@@ -141,22 +302,7 @@ export function createDatabase(databasePath) {
     CREATE INDEX IF NOT EXISTS sessions_expires_at_index
       ON sessions(expires_at);
 
-    CREATE TABLE IF NOT EXISTS stories (
-      id TEXT PRIMARY KEY,
-      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      board TEXT NOT NULL CHECK (board IN ('academic', 'job', 'social')),
-      title TEXT NOT NULL,
-      body TEXT NOT NULL,
-      response_preference TEXT NOT NULL
-        CHECK (response_preference IN ('none', 'encouragement', 'similar', 'advice')),
-      visibility TEXT NOT NULL DEFAULT 'anonymous-public'
-        CHECK (visibility IN ('anonymous-public')),
-      moderation_status TEXT NOT NULL DEFAULT 'pending-human-review'
-        CHECK (moderation_status IN ('pending-human-review', 'approved', 'rejected', 'withdrawn')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      published_at TEXT
-    );
+    ${storiesTableSql('stories')};
 
     CREATE TABLE IF NOT EXISTS story_tags (
       story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
@@ -200,18 +346,7 @@ export function createDatabase(databasePath) {
     CREATE UNIQUE INDEX IF NOT EXISTS story_recommendations_active_index
       ON story_recommendations(story_id) WHERE removed_at IS NULL;
 
-    CREATE TABLE IF NOT EXISTS notifications (
-      id TEXT PRIMARY KEY,
-      recipient_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL CHECK (kind IN (
-        'approved', 'rejected', 'appeal-overturned', 'appeal-upheld',
-        'removed', 'report-actioned', 'report-dismissed'
-      )),
-      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
-      content_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      read_at TEXT
-    );
+    ${notificationsTableSql('notifications')};
 
     CREATE INDEX IF NOT EXISTS notifications_recipient_index
       ON notifications(recipient_account_id, created_at DESC);
@@ -252,36 +387,9 @@ export function createDatabase(databasePath) {
       created_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS comments (
-      id TEXT PRIMARY KEY,
-      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      response_type TEXT NOT NULL
-        CHECK (response_type IN ('encouragement', 'similar', 'advice')),
-      body TEXT NOT NULL,
-      moderation_status TEXT NOT NULL DEFAULT 'pending-human-review'
-        CHECK (moderation_status IN ('pending-human-review', 'approved', 'rejected', 'withdrawn')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      published_at TEXT
-    );
+    ${commentsTableSql('comments')};
 
-    CREATE TABLE IF NOT EXISTS follow_ups (
-      id TEXT PRIMARY KEY,
-      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-      author_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      status TEXT NOT NULL CHECK (status IN (
-        'still-difficult', 'no-major-change', 'small-steps', 'better-than-before', 'prefer-not-to-say'
-      )),
-      body TEXT NOT NULL DEFAULT '',
-      support TEXT NOT NULL DEFAULT '',
-      visibility TEXT NOT NULL CHECK (visibility IN ('anonymous-public', 'private')),
-      moderation_status TEXT NOT NULL
-        CHECK (moderation_status IN ('pending-human-review', 'approved', 'rejected', 'private', 'withdrawn')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      published_at TEXT
-    );
+    ${followUpsTableSql('follow_ups')};
 
     CREATE INDEX IF NOT EXISTS comments_story_index
       ON comments(story_id, moderation_status, published_at);
@@ -314,7 +422,7 @@ export function createDatabase(databasePath) {
     );
   }
 
-  migrateModerationTables(database);
+  migrateTables(database);
 
   const insertAccount = database.prepare(`
     INSERT OR IGNORE INTO accounts
@@ -361,8 +469,8 @@ export function createDatabase(databasePath) {
   );
   const insertModerationCase = database.prepare([
     'INSERT INTO moderation_cases (',
-    'id, content_type, content_id, automated_status, human_status, created_at, updated_at',
-    ") VALUES (?, ?, ?, 'not-configured', 'pending', ?, ?)"
+    'id, content_type, content_id, automated_status, human_status, risk_signal, created_at, updated_at',
+    ") VALUES (?, ?, ?, 'not-configured', 'pending', ?, ?, ?)"
   ].join(' '));
   const insertModerationEvent = database.prepare([
     'INSERT INTO moderation_events (',
@@ -394,7 +502,7 @@ export function createDatabase(databasePath) {
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
     'stories.created_at AS createdAt, stories.updated_at AS updatedAt,',
-    `stories.published_at AS publishedAt, ${appealFields}`
+    `stories.published_at AS publishedAt, moderation_cases.risk_signal AS riskSignal, ${appealFields}`
   ].join(' ');
   const storySource = [
     'FROM stories JOIN moderation_cases',
@@ -493,7 +601,7 @@ export function createDatabase(databasePath) {
   ].join(' '));
   const updateContentModeration = prepareForEachContentType(database, (table) => [
     `UPDATE ${table} SET moderation_status = ?, updated_at = ?, published_at = ?`,
-    "WHERE id = ? AND moderation_status = 'pending-human-review'"
+    'WHERE id = ? AND moderation_status = ?'
   ].join(' '));
   const withdrawOwnedContent = prepareForEachContentType(database, (table) => [
     `UPDATE ${table} SET moderation_status = 'withdrawn', updated_at = ?`,
@@ -563,7 +671,7 @@ export function createDatabase(databasePath) {
     "WHERE content_type = ? AND content_id = ? AND status = 'open'"
   ].join(' '));
   const removeApprovedContent = prepareForEachContentType(database, (table) => [
-    `UPDATE ${table} SET moderation_status = 'rejected', updated_at = ?`,
+    `UPDATE ${table} SET moderation_status = ?, updated_at = ?`,
     "WHERE id = ? AND moderation_status = 'approved'"
   ].join(' '));
   const insertNotification = database.prepare([
@@ -622,7 +730,7 @@ export function createDatabase(databasePath) {
   const updateModerationCase = database.prepare([
     'UPDATE moderation_cases SET human_status = ?, decision_reason = ?,',
     'decided_at = ?, decided_by_account_id = ?, updated_at = ?',
-    "WHERE content_type = ? AND content_id = ? AND human_status = 'pending'"
+    'WHERE content_type = ? AND content_id = ?'
   ].join(' '));
   const selectModerationCaseId = database.prepare([
     'SELECT id FROM moderation_cases',
@@ -649,7 +757,8 @@ export function createDatabase(databasePath) {
     'moderation_cases.human_status AS humanReviewStatus,',
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
-    `comments.created_at AS createdAt, comments.published_at AS publishedAt, ${appealFields}`
+    'comments.created_at AS createdAt, comments.published_at AS publishedAt,',
+    `moderation_cases.risk_signal AS riskSignal, ${appealFields}`
   ].join(' ');
   const commentSource = [
     'FROM comments JOIN stories ON stories.id = comments.story_id',
@@ -673,6 +782,13 @@ export function createDatabase(databasePath) {
     commentSource,
     "WHERE comments.moderation_status = 'pending-human-review' AND stories.moderation_status = 'approved'",
     'ORDER BY comments.created_at ASC, comments.id ASC'
+  ].join(' '));
+  const selectHeldComments = database.prepare([
+    `SELECT ${commentFields},`,
+    'stories.body AS storyContent, stories.response_preference AS storyResponsePreference',
+    commentSource,
+    "WHERE comments.moderation_status = 'safety-hold'",
+    'ORDER BY moderation_cases.decided_at ASC, comments.id ASC'
   ].join(' '));
   const selectCommentForModeration = database.prepare(
     `SELECT ${commentFields} ${commentSource} WHERE comments.id = ?`
@@ -711,7 +827,8 @@ export function createDatabase(databasePath) {
     'moderation_cases.human_status AS humanReviewStatus,',
     'moderation_cases.decision_reason AS decisionReason,',
     'moderation_cases.decided_at AS decidedAt,',
-    `follow_ups.created_at AS createdAt, follow_ups.published_at AS publishedAt, ${appealFields}`
+    'follow_ups.created_at AS createdAt, follow_ups.published_at AS publishedAt,',
+    `moderation_cases.risk_signal AS riskSignal, ${appealFields}`
   ].join(' ');
   // Private follow-ups never enter review, so their moderation case is optional.
   const followUpSource = [
@@ -734,6 +851,11 @@ export function createDatabase(databasePath) {
     "WHERE follow_ups.moderation_status = 'pending-human-review'",
     "AND stories.moderation_status = 'approved'",
     'ORDER BY follow_ups.created_at ASC, follow_ups.id ASC'
+  ].join(' '));
+  const selectHeldFollowUps = database.prepare([
+    `SELECT ${followUpFields} ${followUpSource}`,
+    "WHERE follow_ups.moderation_status = 'safety-hold'",
+    'ORDER BY moderation_cases.decided_at ASC, follow_ups.id ASC'
   ].join(' '));
   const selectFollowUpForModeration = database.prepare(
     `SELECT ${followUpFields} ${followUpSource} WHERE follow_ups.id = ?`
@@ -766,9 +888,9 @@ export function createDatabase(databasePath) {
   }
 
   function selectOwnedContent(contentType, contentId, accountId) {
-    if (contentType === 'story') return hydrateStory(selectStoryForAccount.get(contentId, accountId));
-    if (contentType === 'comment') return selectCommentForAccount.get(contentId, accountId) || null;
-    return selectFollowUpForAccount.get(contentId, accountId) || null;
+    if (contentType === 'story') return forOwner(hydrateStory(selectStoryForAccount.get(contentId, accountId)));
+    if (contentType === 'comment') return forOwner(selectCommentForAccount.get(contentId, accountId)) || null;
+    return forOwner(selectFollowUpForAccount.get(contentId, accountId)) || null;
   }
 
   function selectContentForModeration(contentType, contentId) {
@@ -788,9 +910,16 @@ export function createDatabase(databasePath) {
     }
   }
 
-  function openModerationCase(contentType, contentId, authorAccountId, timestamp) {
+  function openModerationCase(contentType, contentId, authorAccountId, timestamp, riskSignals = []) {
     const moderationCaseId = randomUUID();
-    insertModerationCase.run(moderationCaseId, contentType, contentId, timestamp, timestamp);
+    insertModerationCase.run(
+      moderationCaseId,
+      contentType,
+      contentId,
+      riskSignals.length ? riskSignals.join(',') : null,
+      timestamp,
+      timestamp
+    );
     insertModerationEvent.run(
       randomUUID(),
       moderationCaseId,
@@ -810,23 +939,25 @@ export function createDatabase(databasePath) {
     decidedAt
   }) {
     const timestamp = decidedAt.toISOString();
+    const outcome = DECISION_OUTCOMES[decision];
     const moderationCase = selectModerationCaseId.get(contentType, contentId);
-    if (!moderationCase) return false;
+    if (!outcome || !moderationCase) return false;
 
     database.exec('BEGIN IMMEDIATE');
     try {
       const contentUpdate = updateContentModeration[contentType].run(
-        decision === 'approve' ? 'approved' : 'rejected',
+        outcome.status,
         timestamp,
-        decision === 'approve' ? timestamp : null,
-        contentId
+        outcome.status === 'approved' ? timestamp : null,
+        contentId,
+        outcome.from
       );
       if (Number(contentUpdate.changes) !== 1) {
         database.exec('ROLLBACK');
         return false;
       }
       const caseUpdate = updateModerationCase.run(
-        decision === 'approve' ? 'approved' : 'rejected',
+        outcome.status,
         reason,
         timestamp,
         reviewerAccountId,
@@ -841,11 +972,11 @@ export function createDatabase(databasePath) {
         randomUUID(),
         moderationCase.id,
         reviewerAccountId,
-        decision === 'approve' ? 'approved' : 'rejected',
+        outcome.event,
         reason,
         timestamp
       );
-      notifyAuthor(contentType, contentId, decision === 'approve' ? 'approved' : 'rejected', timestamp);
+      notifyAuthor(contentType, contentId, outcome.notice, timestamp);
       database.exec('COMMIT');
     } catch (error) {
       try {
@@ -905,6 +1036,7 @@ export function createDatabase(databasePath) {
       content,
       responsePreference,
       tags,
+      riskSignals,
       createdAt
     }) {
       const timestamp = createdAt.toISOString();
@@ -920,13 +1052,13 @@ export function createDatabase(databasePath) {
           timestamp
         );
         tags.forEach((tag, index) => insertStoryTag.run(id, tag, index));
-        openModerationCase('story', id, authorAccountId, timestamp);
+        openModerationCase('story', id, authorAccountId, timestamp, riskSignals);
       });
-      return hydrateStory(selectStoryForAccount.get(id, authorAccountId));
+      return selectOwnedContent('story', id, authorAccountId);
     },
 
     listStoriesByAccount(accountId) {
-      return selectStoriesForAccount.all(accountId).map(hydrateStory);
+      return selectStoriesForAccount.all(accountId).map((row) => forOwner(hydrateStory(row)));
     },
 
     listStoriesForModeration(status = 'pending-human-review') {
@@ -1105,19 +1237,21 @@ export function createDatabase(databasePath) {
       const reporters = selectOpenReporters.all(contentType, contentId);
       if (!moderationCase || reporters.length === 0) return false;
 
-      const remove = decision === 'remove';
+      // Removal and safety hold both unpublish; only removal is a rejection.
+      const unpublish = { remove: 'rejected', 'safety-hold': 'safety-hold' }[decision];
+      const remove = Boolean(unpublish);
       database.exec('BEGIN IMMEDIATE');
       try {
-        if (remove) {
-          const removal = removeApprovedContent[contentType].run(timestamp, contentId);
+        if (unpublish) {
+          const removal = removeApprovedContent[contentType].run(unpublish, timestamp, contentId);
           if (Number(removal.changes) !== 1) {
             database.exec('ROLLBACK');
             return false;
           }
           updateModerationCaseById.run(
-            'rejected', reason, timestamp, reviewerAccountId, timestamp, moderationCase.id
+            unpublish, reason, timestamp, reviewerAccountId, timestamp, moderationCase.id
           );
-          notifyAuthor(contentType, contentId, 'removed', timestamp);
+          notifyAuthor(contentType, contentId, unpublish === 'rejected' ? 'removed' : 'safety-hold', timestamp);
         }
         resolveOpenReports.run(
           remove ? 'actioned' : 'dismissed', reviewerAccountId, timestamp, contentType, contentId
@@ -1126,7 +1260,7 @@ export function createDatabase(databasePath) {
           randomUUID(),
           moderationCase.id,
           reviewerAccountId,
-          remove ? 'removed' : 'reports-dismissed',
+          { rejected: 'removed', 'safety-hold': 'safety-held' }[unpublish] || 'reports-dismissed',
           reason,
           timestamp
         );
@@ -1161,13 +1295,13 @@ export function createDatabase(databasePath) {
       return selectStoryForInteraction.get(storyId) || null;
     },
 
-    createComment({ id, storyId, authorAccountId, responseType, content, createdAt }) {
+    createComment({ id, storyId, authorAccountId, responseType, content, riskSignals, createdAt }) {
       const timestamp = createdAt.toISOString();
       withTransaction(() => {
         insertComment.run(id, storyId, authorAccountId, responseType, content, timestamp, timestamp);
-        openModerationCase('comment', id, authorAccountId, timestamp);
+        openModerationCase('comment', id, authorAccountId, timestamp, riskSignals);
       });
-      return selectCommentForAccount.get(id, authorAccountId);
+      return selectOwnedContent('comment', id, authorAccountId);
     },
 
     // Withdrawn and rejected comments still count, so deleting cannot reset the limit.
@@ -1185,7 +1319,7 @@ export function createDatabase(databasePath) {
     },
 
     listCommentsByAccount(accountId) {
-      return selectCommentsForAccount.all(accountId);
+      return selectCommentsForAccount.all(accountId).map(forOwner);
     },
 
     listCommentsForModeration() {
@@ -1200,6 +1334,7 @@ export function createDatabase(databasePath) {
       content,
       support,
       visibility,
+      riskSignals,
       createdAt
     }) {
       const timestamp = createdAt.toISOString();
@@ -1217,13 +1352,24 @@ export function createDatabase(databasePath) {
           timestamp,
           timestamp
         );
-        if (isPublic) openModerationCase('follow_up', id, authorAccountId, timestamp);
+        if (isPublic) openModerationCase('follow_up', id, authorAccountId, timestamp, riskSignals);
       });
-      return selectFollowUpForAccount.get(id, authorAccountId);
+      return selectOwnedContent('follow_up', id, authorAccountId);
     },
 
     listFollowUpsForStoryOwner(storyId, accountId) {
-      return selectFollowUpsForStoryOwner.all(storyId, accountId);
+      return selectFollowUpsForStoryOwner.all(storyId, accountId).map(forOwner);
+    },
+
+    // Held items stay in front of reviewers until someone releases or rejects them.
+    listHeldContent() {
+      return [
+        ...selectStoriesForModeration.all('safety-hold').map((row) => ({
+          contentType: 'story', content: hydrateStory(row)
+        })),
+        ...selectHeldComments.all().map((content) => ({ contentType: 'comment', content })),
+        ...selectHeldFollowUps.all().map((content) => ({ contentType: 'follow_up', content }))
+      ];
     },
 
     listFollowUpsForModeration() {
