@@ -169,6 +169,37 @@ export function createDatabase(databasePath) {
 
     ${moderationEventsTableSql('moderation_events')};
 
+    -- One row per visitor per story per day. visitor_hash is keyed with a
+    -- server secret and the date, so the same person cannot be linked across days.
+    CREATE TABLE IF NOT EXISTS view_events (
+      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      visitor_hash TEXT NOT NULL,
+      view_date TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      PRIMARY KEY (story_id, visitor_hash, view_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS view_events_time_index ON view_events(occurred_at);
+
+    -- All-time unique daily views, kept after old view events are pruned.
+    CREATE TABLE IF NOT EXISTS story_view_totals (
+      story_id TEXT PRIMARY KEY REFERENCES stories(id) ON DELETE CASCADE,
+      unique_views INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS story_recommendations (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      recommended_by_account_id TEXT NOT NULL REFERENCES accounts(id),
+      created_at TEXT NOT NULL,
+      removed_by_account_id TEXT REFERENCES accounts(id),
+      removed_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS story_recommendations_active_index
+      ON story_recommendations(story_id) WHERE removed_at IS NULL;
+
     CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY,
       recipient_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -395,6 +426,70 @@ export function createDatabase(databasePath) {
     'response_preference AS responsePreference, published_at AS publishedAt',
     "FROM stories WHERE moderation_status = 'approved'",
     'ORDER BY published_at DESC, id DESC LIMIT ?'
+  ].join(' '));
+  const selectPublishedStoryById = database.prepare([
+    'SELECT id, board, title, body AS content,',
+    'response_preference AS responsePreference, published_at AS publishedAt',
+    "FROM stories WHERE id = ? AND moderation_status = 'approved'"
+  ].join(' '));
+  const insertViewEvent = database.prepare([
+    'INSERT OR IGNORE INTO view_events (story_id, visitor_hash, view_date, occurred_at)',
+    'VALUES (?, ?, ?, ?)'
+  ].join(' '));
+  const incrementViewTotal = database.prepare([
+    'INSERT INTO story_view_totals (story_id, unique_views) VALUES (?, 1)',
+    'ON CONFLICT(story_id) DO UPDATE SET unique_views = unique_views + 1'
+  ].join(' '));
+  const deleteViewEventsBefore = database.prepare('DELETE FROM view_events WHERE occurred_at < ?');
+  // Ranking inputs only ever cover stories that are public right now.
+  const selectViewCountsSince = database.prepare([
+    'SELECT view_events.story_id AS storyId, COUNT(*) AS count FROM view_events',
+    'JOIN stories ON stories.id = view_events.story_id',
+    "WHERE view_events.occurred_at > ? AND stories.moderation_status = 'approved'",
+    'GROUP BY view_events.story_id'
+  ].join(' '));
+  const selectViewHoursSince = database.prepare([
+    "SELECT view_events.story_id AS storyId, substr(view_events.occurred_at, 1, 13) AS hour,",
+    'COUNT(*) AS count FROM view_events',
+    'JOIN stories ON stories.id = view_events.story_id',
+    "WHERE view_events.occurred_at > ? AND stories.moderation_status = 'approved'",
+    'GROUP BY view_events.story_id, hour'
+  ].join(' '));
+  const selectCommentHoursSince = database.prepare([
+    "SELECT comments.story_id AS storyId, substr(comments.published_at, 1, 13) AS hour,",
+    'COUNT(*) AS count FROM comments',
+    'JOIN stories ON stories.id = comments.story_id',
+    "WHERE comments.moderation_status = 'approved' AND comments.published_at > ?",
+    "AND stories.moderation_status = 'approved'",
+    'GROUP BY comments.story_id, hour'
+  ].join(' '));
+  const selectApprovedCommentCounts = database.prepare([
+    'SELECT comments.story_id AS storyId, COUNT(*) AS count,',
+    'MAX(comments.published_at) AS latestAt FROM comments',
+    'JOIN stories ON stories.id = comments.story_id',
+    "WHERE comments.moderation_status = 'approved' AND stories.moderation_status = 'approved'",
+    "AND stories.response_preference != 'none'",
+    'GROUP BY comments.story_id'
+  ].join(' '));
+  const selectActiveRecommendations = database.prepare([
+    'SELECT story_recommendations.story_id AS storyId, story_recommendations.reason AS reason,',
+    'story_recommendations.created_at AS createdAt FROM story_recommendations',
+    'JOIN stories ON stories.id = story_recommendations.story_id',
+    "WHERE story_recommendations.removed_at IS NULL AND stories.moderation_status = 'approved'",
+    'ORDER BY story_recommendations.created_at DESC'
+  ].join(' '));
+  const insertRecommendation = database.prepare([
+    'INSERT INTO story_recommendations (id, story_id, reason, recommended_by_account_id, created_at)',
+    'VALUES (?, ?, ?, ?, ?)'
+  ].join(' '));
+  const removeRecommendation = database.prepare([
+    'UPDATE story_recommendations SET removed_by_account_id = ?, removed_at = ?',
+    'WHERE story_id = ? AND removed_at IS NULL'
+  ].join(' '));
+  const selectStoryStats = database.prepare([
+    'SELECT COALESCE((SELECT unique_views FROM story_view_totals WHERE story_id = ?), 0) AS totalViews,',
+    '(SELECT COUNT(*) FROM view_events WHERE story_id = ? AND occurred_at > ?) AS weekViews,',
+    "(SELECT COUNT(*) FROM comments WHERE story_id = ? AND moderation_status = 'approved') AS approvedComments"
   ].join(' '));
   const updateContentModeration = prepareForEachContentType(database, (table) => [
     `UPDATE ${table} SET moderation_status = ?, updated_at = ?, published_at = ?`,
@@ -659,6 +754,14 @@ export function createDatabase(databasePath) {
     return Object.freeze({
       ...row,
       tags: selectStoryTags.all(row.id).map(({ tagValue }) => tagValue)
+    });
+  }
+
+  function hydratePublishedStory(row) {
+    return Object.freeze({
+      ...hydrateStory(row),
+      comments: selectPublishedComments.all(row.id),
+      followUps: selectPublishedFollowUps.all(row.id)
     });
   }
 
@@ -958,7 +1061,7 @@ export function createDatabase(databasePath) {
       return true;
     },
 
-    getReportTarget(contentType, contentId) {
+    getPublicState(contentType, contentId) {
       const state = selectPublicState[contentType].get(contentId);
       if (!state) return null;
       return {
@@ -1129,11 +1232,64 @@ export function createDatabase(databasePath) {
 
     listPublishedStories(limit = 100) {
       const safeLimit = Math.min(100, Math.max(1, Number(limit) || 100));
-      return selectPublishedStories.all(safeLimit).map((row) => Object.freeze({
-        ...hydrateStory(row),
-        comments: selectPublishedComments.all(row.id),
-        followUps: selectPublishedFollowUps.all(row.id)
-      }));
+      return selectPublishedStories.all(safeLimit).map(hydratePublishedStory);
+    },
+
+    listPublishedStoriesByIds(storyIds) {
+      return storyIds.map((storyId) => selectPublishedStoryById.get(storyId))
+        .filter(Boolean)
+        .map(hydratePublishedStory);
+    },
+
+    // Returns true when this visitor's view of the story is new for the day.
+    recordView({ storyId, visitorHash, viewDate, occurredAt }) {
+      let counted = false;
+      withTransaction(() => {
+        const insert = insertViewEvent.run(storyId, visitorHash, viewDate, occurredAt.toISOString());
+        counted = Number(insert.changes) === 1;
+        if (counted) incrementViewTotal.run(storyId);
+      });
+      return counted;
+    },
+
+    pruneViewEvents(before) {
+      deleteViewEventsBefore.run(before.toISOString());
+    },
+
+    getRankingInputs({ dayAgo, weekAgo, trendingSince }) {
+      const since = trendingSince.toISOString();
+      return {
+        viewsDay: selectViewCountsSince.all(dayAgo.toISOString()),
+        viewsWeek: selectViewCountsSince.all(weekAgo.toISOString()),
+        viewHours: selectViewHoursSince.all(since),
+        commentHours: selectCommentHoursSince.all(since),
+        commentCounts: selectApprovedCommentCounts.all(),
+        recommendations: selectActiveRecommendations.all()
+      };
+    },
+
+    recommendStory({ id, storyId, reason, accountId, createdAt }) {
+      let recommended = false;
+      withTransaction(() => {
+        if (!selectPublishedStoryById.get(storyId)) return;
+        removeRecommendation.run(accountId, createdAt.toISOString(), storyId);
+        insertRecommendation.run(id, storyId, reason, accountId, createdAt.toISOString());
+        recommended = true;
+      });
+      return recommended;
+    },
+
+    unrecommendStory({ storyId, accountId, removedAt }) {
+      return Number(removeRecommendation.run(accountId, removedAt.toISOString(), storyId).changes) === 1;
+    },
+
+    getStoryStats(storyId, weekAgo) {
+      const stats = selectStoryStats.get(storyId, storyId, weekAgo.toISOString(), storyId);
+      return {
+        totalViews: Number(stats.totalViews),
+        weekViews: Number(stats.weekViews),
+        approvedComments: Number(stats.approvedComments)
+      };
     },
 
     listModerationEvents(contentId, contentType = 'story') {

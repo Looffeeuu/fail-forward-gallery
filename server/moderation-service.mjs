@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 const REVIEWER_ROLES = new Set(['moderator', 'administrator']);
 const DECISIONS = new Set(['approve', 'reject']);
 const APPEAL_DECISIONS = new Set(['overturn', 'uphold']);
@@ -48,7 +50,11 @@ function normaliseDecisionInput(contentId, input, invalidContent, allowedDecisio
   return Object.freeze({ id, decision, reason });
 }
 
-export function createModerationService({ database, now = () => new Date() }) {
+export function createModerationService({
+  database,
+  now = () => new Date(),
+  generateId = randomUUID
+}) {
   if (!database) throw new TypeError('Moderation service database is required.');
 
   function decide(session, contentId, input, { invalidContent, moderate, conflictMessage }) {
@@ -118,6 +124,44 @@ export function createModerationService({ database, now = () => new Date() }) {
       }
       const { originalDeciderAccountId, moderationCaseId, ...appeal } = database.findAppeal(id);
       return Object.freeze(appeal);
+    },
+
+    // Editorial picks are public with their reason, so readers know why a story is featured.
+    recommendStory({ session, storyId, input }) {
+      requireReviewer(session);
+      const id = String(storyId || '').trim();
+      const reason = String(input?.reason || '').trim();
+      if (reason.length < 8 || reason.length > 300) {
+        throw new ModerationError(
+          'invalid-recommendation-reason',
+          400,
+          'Explain the recommendation in 8-300 characters.'
+        );
+      }
+      const recommended = id && id.length <= 100 && database.recommendStory({
+        id: generateId(),
+        storyId: id,
+        reason,
+        accountId: session.accountId,
+        createdAt: now()
+      });
+      if (!recommended) {
+        throw new ModerationError('invalid-story', 404, 'Only public stories can be recommended.');
+      }
+      return Object.freeze({ storyId: id, reason });
+    },
+
+    unrecommendStory({ session, storyId }) {
+      requireReviewer(session);
+      const removed = database.unrecommendStory({
+        storyId: String(storyId || '').trim(),
+        accountId: session.accountId,
+        removedAt: now()
+      });
+      if (!removed) {
+        throw new ModerationError('review-conflict', 409, 'This story is not currently recommended.');
+      }
+      return Object.freeze({ storyId });
     },
 
     listReportedContent(session) {

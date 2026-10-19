@@ -80,6 +80,23 @@ const notificationState = {
   pollTimer: null
 };
 
+const RANKING_TABS = [
+  { key: 'trending', zh: '正在受到关注', en: 'Getting attention', hintZh: '近 3 天的阅读与回应，越新的权重越高。', hintEn: 'Reading and responses over the last 3 days, newest weighted most.' },
+  { key: 'mostRead', zh: '阅读最多', en: 'Most read', hintZh: '按去重阅读排序，同一位读者每天只计一次。', hintEn: 'Unique readers; each person counts once a day.' },
+  { key: 'mostDiscussed', zh: '讨论最多', en: 'Most discussed', hintZh: '只统计通过审核的回应，不含“不接收评论”的故事。', hintEn: 'Approved responses only; stories closed to responses are not included.' },
+  { key: 'recommended', zh: '审核团队推荐', en: 'Team picks', hintZh: '审核团队挑选，并写明推荐理由。', hintEn: 'Chosen by the review team, with their reason.' }
+];
+const rankingState = {
+  data: null,
+  tab: 'trending',
+  readWindow: 'day',
+  loading: false,
+  errorCode: null,
+  refreshTimer: null,
+  recommendFormOpen: false,
+  recommendMessage: ''
+};
+
 // The one report form open in the story dialog, keyed `${contentType}:${id}`.
 const reportState = {
   targetKey: null,
@@ -157,6 +174,7 @@ function initApp() {
   initArchive();
   initPublicStories();
   initModeration();
+  initRankings();
   initSubmitForm();
   initModal();
   showPage('home');
@@ -208,6 +226,7 @@ function setSiteLanguage(nextLanguage) {
   renderAdvice();
   renderMyStories();
   renderNotifications();
+  renderRankings();
   moderationState.message = '';
   renderModeration();
 
@@ -538,6 +557,7 @@ function showPage(pageName) {
     loadPublishedStories();
   }
   if (pageName === 'advice') renderAdvice();
+  if (pageName === 'rankings') loadRankings();
   if (pageName === 'account' && isSignedIn()) {
     loadMyStories();
     loadNotifications();
@@ -883,6 +903,12 @@ function initModal() {
       return;
     }
 
+    const recommendButton = event.target.closest('[data-recommend-action]');
+    if (recommendButton) {
+      handleRecommendAction(recommendButton.dataset.recommendAction);
+      return;
+    }
+
     const reportButton = event.target.closest('[data-report-action]');
     if (reportButton) {
       handleReportAction(reportButton);
@@ -916,6 +942,12 @@ function initModal() {
   });
 
   content?.addEventListener('submit', (event) => {
+    if (event.target.closest('[data-recommend-form]')) {
+      event.preventDefault();
+      handleRecommendAction('submit');
+      return;
+    }
+
     const reportForm = event.target.closest('[data-report-form]');
     if (reportForm) {
       event.preventDefault();
@@ -977,7 +1009,12 @@ function openStoryModal(storyId, trigger) {
 
   resetFollowUpFlow();
   resetReportState();
+  rankingState.recommendFormOpen = false;
+  rankingState.recommendMessage = '';
   appState.activeStoryId = storyId;
+  if (isServerStory(story)) {
+    window.FFG_CONTENT_API.recordStoryView(story.id).catch(() => {});
+  }
   appState.lastStoryTrigger = trigger;
   renderModalStory(story);
 
@@ -1044,6 +1081,7 @@ function renderModalStory(story) {
       </div>
       ${isServerStory(story) && !isOwnedStory(story) ? renderReportControl('story', story.id) : ''}
     </article>
+    ${renderRecommendationControl(story)}
     ${renderFollowUpInvite(story)}
     ${renderFollowUpTimeline(story)}
     ${renderComments(story)}
@@ -1709,6 +1747,221 @@ function renderComments(story) {
         </p>
       </form>
     </section>
+  `;
+}
+
+function initRankings() {
+  if (!window.FFG_CONTENT_API?.enabled) return;
+  document.querySelectorAll('[data-server-only]').forEach((element) => { element.hidden = false; });
+
+  document.getElementById('rankings-tabs')?.addEventListener('click', (event) => {
+    const tab = event.target.closest('[data-ranking-tab]');
+    if (!tab) return;
+    rankingState.tab = tab.dataset.rankingTab;
+    renderRankings();
+    document.querySelector(`[data-ranking-tab="${rankingState.tab}"]`)?.focus();
+  });
+
+  document.getElementById('rankings-content')?.addEventListener('click', (event) => {
+    const windowButton = event.target.closest('[data-ranking-window]');
+    if (windowButton) {
+      rankingState.readWindow = windowButton.dataset.rankingWindow;
+      renderRankings();
+      return;
+    }
+    const trigger = event.target.closest('[data-story-id]');
+    if (trigger) openRankedStory(trigger.dataset.storyId, trigger);
+  });
+
+  // Rankings refresh every minute while the page is open, matching the server cache.
+  rankingState.refreshTimer = window.setInterval(() => {
+    const onPage = document.getElementById('page-rankings')?.classList.contains('active');
+    if (onPage && document.visibilityState === 'visible') loadRankings();
+  }, 60 * 1000);
+  loadRankings();
+}
+
+async function loadRankings() {
+  if (!window.FFG_CONTENT_API?.enabled || rankingState.loading) return;
+  rankingState.loading = true;
+  try {
+    rankingState.data = await window.FFG_CONTENT_API.getRankings();
+    rankingState.errorCode = null;
+  } catch (error) {
+    rankingState.errorCode = error.code || 'request-failed';
+  } finally {
+    rankingState.loading = false;
+    renderRankings();
+  }
+}
+
+// Ranked stories may be older than the archive's latest 100, so add them on demand.
+function openRankedStory(storyId, trigger) {
+  if (!findStoryById(storyId)) {
+    const ranked = rankingState.data?.stories.find((story) => story.id === storyId);
+    const story = ranked && normalisePublishedStory(ranked);
+    if (!story) return;
+    stories.push(story);
+  }
+  openStoryModal(storyId, trigger);
+}
+
+function getRankedEntries() {
+  const rankings = rankingState.data?.rankings;
+  if (!rankings) return [];
+  const ids = {
+    trending: rankings.trending,
+    mostRead: rankingState.readWindow === 'week' ? rankings.mostReadWeek : rankings.mostReadDay,
+    mostDiscussed: rankings.mostDiscussed,
+    recommended: rankings.recommended.map(({ storyId }) => storyId)
+  }[rankingState.tab] || [];
+  return ids.map((storyId) => ({
+    story: rankingState.data.stories.find((story) => story.id === storyId),
+    reason: rankings.recommended.find((entry) => entry.storyId === storyId)?.reason || ''
+  })).filter(({ story }) => story);
+}
+
+function renderRankings() {
+  const tabs = document.getElementById('rankings-tabs');
+  const content = document.getElementById('rankings-content');
+  if (!tabs || !content) return;
+  const useChinese = tagUiState.language === 'zh';
+
+  tabs.innerHTML = RANKING_TABS.map((tab) => `
+    <button type="button" role="tab" class="ranking-tab${tab.key === rankingState.tab ? ' is-active' : ''}"
+      aria-selected="${tab.key === rankingState.tab}" data-ranking-tab="${tab.key}">
+      ${escapeHtml(useChinese ? tab.zh : tab.en)}
+    </button>
+  `).join('');
+
+  const activeTab = RANKING_TABS.find((tab) => tab.key === rankingState.tab) || RANKING_TABS[0];
+  if (rankingState.errorCode && !rankingState.data) {
+    content.innerHTML = `<p class="rankings-empty">${useChinese ? '暂时无法加载榜单，请稍后再试。' : 'Rankings could not be loaded. Please try again later.'}</p>`;
+    return;
+  }
+
+  const entries = getRankedEntries();
+  const windowToggle = activeTab.key === 'mostRead' ? `
+    <div class="ranking-window" role="group" aria-label="${useChinese ? '时间范围' : 'Time range'}">
+      ${[['day', '24 小时', 'Past 24 hours'], ['week', '7 天', 'Past 7 days']].map(([value, zh, en]) => `
+        <button type="button" class="ranking-window-button${rankingState.readWindow === value ? ' is-active' : ''}"
+          aria-pressed="${rankingState.readWindow === value}" data-ranking-window="${value}">${useChinese ? zh : en}</button>
+      `).join('')}
+    </div>
+  ` : '';
+  const updatedAt = rankingState.data?.generatedAt
+    ? `${useChinese ? '每分钟更新 · 更新于' : 'Refreshed every minute · updated'} ${formatOwnedStoryDate(rankingState.data.generatedAt)}`
+    : '';
+
+  content.innerHTML = `
+    <div class="ranking-heading">
+      <p class="ranking-hint">${escapeHtml(useChinese ? activeTab.hintZh : activeTab.hintEn)}</p>
+      ${windowToggle}
+    </div>
+    ${entries.length ? `
+      <ol class="ranking-list">
+        ${entries.map(({ story, reason }, index) => `
+          <li>
+            <button type="button" class="ranking-entry" data-story-id="${escapeHtml(story.id)}" aria-haspopup="dialog">
+              <span class="ranking-position" aria-hidden="true">${index + 1}</span>
+              <span class="ranking-body">
+                <span class="story-board">${escapeHtml(formatBoardName(story.board))}</span>
+                <strong>${escapeHtml(story.title)}</strong>
+                <span class="ranking-excerpt">${escapeHtml(truncateText(story.content, 110))}</span>
+                ${reason ? `<span class="ranking-reason">${useChinese ? '推荐理由：' : 'Why we picked it: '}${escapeHtml(reason)}</span>` : ''}
+              </span>
+            </button>
+          </li>
+        `).join('')}
+      </ol>
+    ` : `<p class="rankings-empty">${activeTab.key === 'recommended'
+      ? (useChinese ? '审核团队还没有推荐故事。' : 'The review team has not picked any stories yet.')
+      : (useChinese ? '还没有足够的阅读和回应来形成这个榜单。' : 'There is not enough reading or discussion for this list yet.')}</p>`}
+    <p class="ranking-updated">${escapeHtml(updatedAt)}</p>
+  `;
+}
+
+function renderRecommendationControl(story) {
+  if (!isServerStory(story) || !isReviewerSession()) return '';
+  const useChinese = tagUiState.language === 'zh';
+  const current = rankingState.data?.rankings.recommended.find((entry) => entry.storyId === story.id);
+  const message = rankingState.recommendMessage
+    ? `<p class="report-status" role="status">${escapeHtml(rankingState.recommendMessage)}</p>`
+    : '';
+
+  if (rankingState.recommendFormOpen) {
+    return `
+      <form class="recommend-panel report-panel" data-recommend-form>
+        <label for="recommend-reason">${useChinese ? '推荐理由（会公开显示，8–300个字符）' : 'Reason (shown publicly, 8–300 characters)'}</label>
+        <textarea id="recommend-reason" name="recommend-reason" rows="2" minlength="8" maxlength="300" required></textarea>
+        <div class="owner-control-actions">
+          <button type="submit" class="btn btn-primary btn-sm">${useChinese ? '推荐到榜单' : 'Add to team picks'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-recommend-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>
+        </div>
+        ${message}
+      </form>
+    `;
+  }
+  return `
+    <section class="recommend-panel">
+      <span class="prototype-badge">${useChinese ? '审核员工具' : 'Reviewer tool'}</span>
+      ${current
+        ? `<p>${useChinese ? '已在“审核团队推荐”中：' : 'In team picks: '}${escapeHtml(current.reason)}</p>
+           <button type="button" class="btn btn-ghost btn-sm" data-recommend-action="remove">${useChinese ? '取消推荐' : 'Remove from team picks'}</button>`
+        : `<button type="button" class="btn btn-secondary btn-sm" data-recommend-action="open">${useChinese ? '推荐到榜单' : 'Recommend for team picks'}</button>`}
+      ${message}
+    </section>
+  `;
+}
+
+async function handleRecommendAction(action) {
+  const story = findStoryById(appState.activeStoryId);
+  if (!story) return;
+  const useChinese = tagUiState.language === 'zh';
+  rankingState.recommendMessage = '';
+
+  if (action === 'open' || action === 'cancel') {
+    rankingState.recommendFormOpen = action === 'open';
+    renderModalStory(story);
+    document.getElementById('recommend-reason')?.focus();
+    return;
+  }
+
+  try {
+    if (action === 'submit') {
+      const reason = document.getElementById('recommend-reason')?.value.trim() || '';
+      if (reason.length < 8) {
+        rankingState.recommendMessage = useChinese ? '请写 8–300 个字符的推荐理由。' : 'Write a reason of 8–300 characters.';
+        renderModalStory(story);
+        return;
+      }
+      await window.FFG_CONTENT_API.recommendStory(story.id, reason);
+      rankingState.recommendMessage = useChinese ? '已加入“审核团队推荐”。' : 'Added to team picks.';
+    } else if (action === 'remove') {
+      await window.FFG_CONTENT_API.unrecommendStory(story.id);
+      rankingState.recommendMessage = useChinese ? '已从“审核团队推荐”中移除。' : 'Removed from team picks.';
+    }
+    rankingState.recommendFormOpen = false;
+    await loadRankings();
+  } catch (error) {
+    rankingState.recommendMessage = useChinese ? '操作没有成功，请稍后重试。' : 'That did not work. Please try again.';
+  }
+  if (findStoryById(appState.activeStoryId) === story) renderModalStory(story);
+}
+
+// Figures are private to the author; public pages only show ranking order.
+function renderOwnerStats(story) {
+  if (!story.stats || !['approved', 'withdrawn', 'rejected'].includes(story.moderationStatus)) return '';
+  if (story.moderationStatus !== 'approved' && story.stats.totalViews === 0) return '';
+  const useChinese = tagUiState.language === 'zh';
+  const { totalViews, weekViews, approvedComments } = story.stats;
+  return `
+    <p class="owner-stats">
+      ${useChinese
+        ? `累计 ${totalViews} 位读者 · 近 7 天 ${weekViews} 位 · ${approvedComments} 条公开回应`
+        : `${totalViews} readers in total · ${weekViews} in the past 7 days · ${approvedComments} public responses`}
+      <span>${useChinese ? '仅你可见' : 'Only visible to you'}</span>
+    </p>
   `;
 }
 
@@ -2869,6 +3122,7 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
           <div><dt>${useChinese ? '提交时间' : 'Submitted'}</dt><dd>${escapeHtml(formatOwnedStoryDate(story.createdAt))}</dd></div>
         </dl>
         <p class="moderation-note">${escapeHtml(moderationNote)}</p>
+        ${renderOwnerStats(story)}
         ${renderReviewNote(story)}
         ${renderAppealOutcome(story)}
         ${renderOwnerControls('story', story)}

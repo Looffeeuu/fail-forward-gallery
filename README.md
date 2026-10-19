@@ -48,7 +48,7 @@ Fail Forward Gallery was created to challenge that imbalance. Instead of treatin
 | Account & Story Ownership | Private mobile-based account foundation separates ownership from public anonymity | V0.2 local service; on main |
 | Human Review Workflow | New stories remain private until an authorised reviewer approves them; decisions include reasons and audit events | V0.2 local service; on main |
 | AI-assisted Safety Screening | Risk classification before human review | Planned; no production AI service connected |
-| Ranking & Discovery | View-, response-, and editor-informed discovery with anti-abuse safeguards | Planned |
+| Ranking & Discovery | Getting attention, most read, most discussed, and team picks; order only, with figures private to authors | V0.2 local service |
 | Pop-up Exhibition | Physical story gallery and facilitated reflection activities | Planned pilot component |
 
 ### A deliberately honest product boundary
@@ -131,6 +131,7 @@ The project is in active implementation. The public site serves the static brows
 - Immediate author withdrawal of any story, comment, or follow-up, and a one-time structured appeal of each rejection.
 - Reporting of public content, grouped for reviewers without reporter identities, with safety concerns first.
 - In-site review notifications with an unread badge.
+- Story rankings refreshed every minute, with de-duplicated, privacy-preserving view counting.
 - Role-protected human-review queue for stories, comments, follow-ups, appeals, and reports, with reasons and immutable audit events.
 - Public API access only to human-approved anonymous content.
 
@@ -138,9 +139,8 @@ The project is in active implementation. The public site serves the static brows
 
 1. Moderator wellbeing procedures and a verified regional crisis-resource process.
 2. Compliant AI-assisted risk classification with human-only publication approval.
-3. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
-4. Production SMS provider and regional PostgreSQL deployment ahead of the pilot.
-5. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
+3. Production SMS provider and regional PostgreSQL deployment ahead of the pilot.
+4. Pilot evaluation, pop-up exhibition materials, and a reusable implementation toolkit.
 
 The accepted product and architecture foundation is documented in [V0.1](./docs/v0.1/); the account, content, and moderation service is documented in [V0.2](./docs/v0.2/).
 

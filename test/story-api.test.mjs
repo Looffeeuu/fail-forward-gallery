@@ -7,9 +7,11 @@ import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
 import { createNotificationService } from '../server/notification-service.mjs';
+import { createRankingService } from '../server/ranking-service.mjs';
 import { createReportService } from '../server/report-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
+import { createViewService } from '../server/view-service.mjs';
 
 function updateCookieJar(jar, headers) {
   const setCookies = typeof headers.getSetCookie === 'function'
@@ -81,6 +83,8 @@ test('story API links submissions to the authenticated account only', async (t) 
     authorControlService: createAuthorControlService({ database }),
     notificationService: createNotificationService({ database }),
     reportService: createReportService({ database }),
+    viewService: createViewService({ database, secret: 'test-view-secret' }),
+    rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

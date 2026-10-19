@@ -50,7 +50,7 @@ export function createReportService({
       }
       const id = String(contentId || '').trim();
       const target = CONTENT_TYPES.has(contentType) && id && id.length <= 100
-        ? database.getReportTarget(contentType, id)
+        ? database.getPublicState(contentType, id)
         : null;
       if (!target?.isPublic) {
         throw new StoryError('content-not-found', 404, 'This content is not available.');

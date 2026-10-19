@@ -50,7 +50,8 @@
     'cannot-report-own-content',
     'already-reported',
     'report-rate-limited',
-    'invalid-content'
+    'invalid-content',
+    'invalid-recommendation-reason'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -189,6 +190,13 @@
       decisionReason: story.decisionReason ? String(story.decisionReason) : null,
       decidedAt: story.decidedAt ? String(story.decidedAt) : null,
       followUps: sanitiseList(story.followUps, sanitiseFollowUp),
+      stats: story.stats && typeof story.stats === 'object'
+        ? Object.freeze({
+          totalViews: Math.max(0, Number(story.stats.totalViews) || 0),
+          weekViews: Math.max(0, Number(story.stats.weekViews) || 0),
+          approvedComments: Math.max(0, Number(story.stats.approvedComments) || 0)
+        })
+        : null,
       appealId: optionalString(story.appealId),
       appealStatus: optionalString(story.appealStatus),
       appealReasonCode: optionalString(story.appealReasonCode),
@@ -483,6 +491,53 @@
           { method: 'POST', body: JSON.stringify(input) }
         );
         return payload.result;
+      },
+
+      // Fire-and-forget; the server never says whether a view counted.
+      async recordStoryView(storyId) {
+        await adapter.requestJson(`/api/v1/stories/${encodeURIComponent(storyId)}/views`, {
+          method: 'POST'
+        });
+      },
+
+      async getRankings() {
+        const payload = await adapter.requestJson('/api/v1/rankings', { method: 'GET' });
+        const ids = (list) => Object.freeze((Array.isArray(list) ? list : []).map(String));
+        const rankings = payload.rankings || {};
+        return Object.freeze({
+          generatedAt: String(payload.generatedAt || ''),
+          refreshSeconds: Math.max(10, Number(payload.refreshSeconds) || 60),
+          rankings: Object.freeze({
+            trending: ids(rankings.trending),
+            mostReadDay: ids(rankings.mostReadDay),
+            mostReadWeek: ids(rankings.mostReadWeek),
+            mostDiscussed: ids(rankings.mostDiscussed),
+            recommended: Object.freeze((Array.isArray(rankings.recommended) ? rankings.recommended : [])
+              .map((entry) => Object.freeze({
+                storyId: String(entry?.storyId || ''),
+                reason: String(entry?.reason || '')
+              })))
+          }),
+          stories: Object.freeze(
+            (Array.isArray(payload.stories) ? payload.stories : [])
+              .map(sanitisePublishedStory)
+              .filter((story) => Boolean(story?.id))
+          )
+        });
+      },
+
+      async recommendStory(storyId, reason) {
+        await adapter.requestJson(
+          `/api/v1/moderation/recommendations/${encodeURIComponent(storyId)}`,
+          { method: 'PUT', body: JSON.stringify({ reason }) }
+        );
+      },
+
+      async unrecommendStory(storyId) {
+        await adapter.requestJson(
+          `/api/v1/moderation/recommendations/${encodeURIComponent(storyId)}`,
+          { method: 'DELETE' }
+        );
       },
 
       async listNotifications() {

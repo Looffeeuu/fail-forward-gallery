@@ -66,6 +66,34 @@ function normaliseStoryInput(input) {
   return Object.freeze({ title, board, content, responsePreference, tags });
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// The only story shape anonymous readers receive: no owner, review, or metric fields.
+function toPublicStory(story) {
+  return Object.freeze({
+    id: story.id,
+    board: story.board,
+    title: story.title,
+    content: story.content,
+    responsePreference: story.responsePreference,
+    tags: Object.freeze([...story.tags]),
+    publishedAt: story.publishedAt,
+    comments: Object.freeze(story.comments.map((comment) => Object.freeze({
+      id: comment.id,
+      responseType: comment.responseType,
+      content: comment.content,
+      publishedAt: comment.publishedAt
+    }))),
+    followUps: Object.freeze(story.followUps.map((followUp) => Object.freeze({
+      id: followUp.id,
+      status: followUp.status,
+      content: followUp.content,
+      support: followUp.support,
+      publishedAt: followUp.publishedAt
+    })))
+  });
+}
+
 export function createStoryService({ database, now = () => new Date(), generateId = randomUUID }) {
   if (!database) throw new TypeError('Story service database is required.');
 
@@ -84,39 +112,25 @@ export function createStoryService({ database, now = () => new Date(), generateI
       });
     },
 
+    // Reading figures are shown only to the author, never on public pages.
     listMyStories(accountId) {
       if (!accountId) {
         throw new StoryError('authentication-required', 401, 'Sign in to view your stories.');
       }
+      const weekAgo = new Date(now().getTime() - WEEK_MS);
       return database.listStoriesByAccount(accountId).map((story) => Object.freeze({
         ...story,
-        followUps: database.listFollowUpsForStoryOwner(story.id, accountId)
+        followUps: database.listFollowUpsForStoryOwner(story.id, accountId),
+        stats: Object.freeze(database.getStoryStats(story.id, weekAgo))
       }));
     },
 
     listPublishedStories(limit = 100) {
-      return database.listPublishedStories(limit).map((story) => Object.freeze({
-        id: story.id,
-        board: story.board,
-        title: story.title,
-        content: story.content,
-        responsePreference: story.responsePreference,
-        tags: Object.freeze([...story.tags]),
-        publishedAt: story.publishedAt,
-        comments: Object.freeze(story.comments.map((comment) => Object.freeze({
-          id: comment.id,
-          responseType: comment.responseType,
-          content: comment.content,
-          publishedAt: comment.publishedAt
-        }))),
-        followUps: Object.freeze(story.followUps.map((followUp) => Object.freeze({
-          id: followUp.id,
-          status: followUp.status,
-          content: followUp.content,
-          support: followUp.support,
-          publishedAt: followUp.publishedAt
-        })))
-      }));
+      return database.listPublishedStories(limit).map(toPublicStory);
+    },
+
+    listPublishedStoriesByIds(storyIds) {
+      return database.listPublishedStoriesByIds(storyIds).map(toPublicStory);
     }
   });
 }

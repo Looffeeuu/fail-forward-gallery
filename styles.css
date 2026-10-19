@@ -2187,6 +2187,68 @@ body.modal-open { overflow: hidden; }
 }
 .report-reasons p { margin-top: 0.25rem; }
 .report-reasons small { display: block; margin-top: 0.25rem; color: var(--color-text-muted); }
+.rankings-section { max-width: 860px; margin-inline: auto; }
+.rankings-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; }
+.ranking-tab,
+.ranking-window-button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ranking-tab.is-active,
+.ranking-window-button.is-active {
+  border-color: var(--color-primary-dark);
+  background: var(--color-primary-dark);
+  color: #fff;
+}
+.ranking-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.ranking-hint { color: var(--color-text-muted); font-size: 0.9rem; }
+.ranking-window { display: flex; gap: 0.4rem; }
+.ranking-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.ranking-entry {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ranking-entry:hover { border-color: var(--color-primary-light); background: #f3f8f5; }
+.ranking-position {
+  flex: 0 0 2rem;
+  color: var(--color-accent);
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.ranking-body { display: grid; gap: 0.25rem; min-width: 0; }
+.ranking-body strong { color: var(--color-primary-dark); font-size: 1.05rem; }
+.ranking-excerpt { color: var(--color-text-muted); font-size: 0.9rem; }
+.ranking-reason { color: #604819; font-size: 0.85rem; font-weight: 700; }
+.ranking-updated { margin-top: 1rem; color: var(--color-text-muted); font-size: 0.8rem; text-align: right; }
+.rankings-empty { margin-top: 1rem; padding: 1.5rem; border: 1px dashed var(--color-border); border-radius: var(--radius); color: var(--color-text-muted); text-align: center; }
+.recommend-panel { display: grid; gap: 0.5rem; justify-items: start; margin-top: 1rem; padding: 0.85rem 1rem; border: 1px dashed var(--color-accent); border-radius: var(--radius); }
+.owner-stats { margin-top: 0.6rem; color: var(--color-primary-dark); font-size: 0.86rem; font-weight: 700; }
+.owner-stats span { margin-left: 0.5rem; color: var(--color-text-muted); font-weight: 400; }
 .owner-controls {
   display: grid;
   gap: 0.6rem;

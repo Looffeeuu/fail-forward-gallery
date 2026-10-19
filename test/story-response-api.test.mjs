@@ -7,9 +7,11 @@ import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
 import { createNotificationService } from '../server/notification-service.mjs';
+import { createRankingService } from '../server/ranking-service.mjs';
 import { createReportService } from '../server/report-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
+import { createViewService } from '../server/view-service.mjs';
 
 function updateCookieJar(jar, headers) {
   headers.getSetCookie().forEach((setCookie) => {
@@ -75,6 +77,8 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     authorControlService: createAuthorControlService({ database }),
     notificationService: createNotificationService({ database }),
     reportService: createReportService({ database }),
+    viewService: createViewService({ database, secret: 'test-view-secret' }),
+    rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -212,6 +216,26 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   assert.equal(overturn.payload.appeal.status, 'overturned');
   const withComment = await visitor.send('/api/v1/stories');
   assert.equal(withComment.payload.stories[0].comments.length, 1);
+
+  // Views set an anonymous visitor cookie; rankings expose order, never figures.
+  const view = await visitor.send(`/api/v1/stories/${story.id}/views`, { method: 'POST' });
+  assert.equal(view.status, 202);
+  assert.deepEqual(view.payload, { ok: true });
+  const rankings = await visitor.send('/api/v1/rankings');
+  assert.deepEqual(rankings.payload.rankings.mostReadDay, [story.id]);
+  assert.equal(/count|score/i.test(JSON.stringify(rankings.payload.rankings)), false);
+  const memberPick = await reader.send(`/api/v1/moderation/recommendations/${story.id}`, {
+    method: 'PUT',
+    body: { reason: 'I would like to feature this.' }
+  });
+  assert.equal(memberPick.status, 403);
+  const pick = await moderator.send(`/api/v1/moderation/recommendations/${story.id}`, {
+    method: 'PUT',
+    body: { reason: 'A thoughtful account of a hard season.' }
+  });
+  assert.equal(pick.status, 200);
+  const picked = await visitor.send('/api/v1/rankings');
+  assert.equal(picked.payload.rankings.recommended[0].reason, 'A thoughtful account of a hard season.');
 
   // Reports: signed-in readers only; reviewers see them grouped and decide once.
   const anonymousReport = await visitor.send(`/api/v1/stories/${story.id}/reports`, {

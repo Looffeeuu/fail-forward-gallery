@@ -15,6 +15,7 @@
     <button type="button" class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">☰</button>
     <ul class="nav-links" id="nav-links">
       <li><a href="#" data-page="archive" class="nav-link">Story Archive</a></li>
+      <li data-server-only hidden><a href="#" data-page="rankings" class="nav-link">Rankings</a></li>
       <li><a href="#" data-page="advice" class="nav-link">Advice Hub</a></li>
       <li><a href="#" data-page="submit" class="nav-link">Submit Your Story</a></li>
       <li><a href="#" data-page="about" class="nav-link">About</a></li>
@@ -383,6 +384,23 @@
   <footer class="footer">
     <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
     <p>Serving inclusivity &amp; resilience among Asian youth &bull; 失败是向前的一步</p>
+  </footer>
+</section>
+
+<!-- ==================== RANKINGS PAGE ==================== -->
+<section id="page-rankings" class="page">
+  <div class="page-header">
+    <h1>Story rankings</h1>
+    <p>Rankings follow stories, never people. They refresh every minute and never show view counts.</p>
+  </div>
+
+  <div class="section rankings-section">
+    <div class="rankings-tabs" id="rankings-tabs" role="tablist" data-no-translate></div>
+    <div id="rankings-content" aria-live="polite" data-no-translate></div>
+  </div>
+
+  <footer class="footer">
+    <p>Fail Forward Gallery &copy; 2026 &mdash; An Undergraduate Project</p>
   </footer>
 </section>
 

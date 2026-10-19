@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -759,6 +759,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/rankings:
+    get:
+      summary: Public story rankings
+      operationId: getRankings
+      description: Story order only, refreshed at most once a minute. View, comment, and score figures are never included. Only currently public stories can appear; stories closed to responses never appear in mostDiscussed.
+      responses:
+        '200':
+          description: Current rankings with the stories they reference.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [generatedAt, refreshSeconds, rankings, stories]
+                properties:
+                  generatedAt:
+                    type: string
+                    format: date-time
+                  refreshSeconds:
+                    type: integer
+                  rankings:
+                    type: object
+                    required: [trending, mostReadDay, mostReadWeek, mostDiscussed, recommended]
+                    properties:
+                      trending:
+                        description: Unique views and approved responses over 72 hours, halving in weight every 24 hours (responses weigh 3x).
+                        $ref: '#/components/schemas/StoryIdList'
+                      mostReadDay:
+                        $ref: '#/components/schemas/StoryIdList'
+                      mostReadWeek:
+                        $ref: '#/components/schemas/StoryIdList'
+                      mostDiscussed:
+                        $ref: '#/components/schemas/StoryIdList'
+                      recommended:
+                        type: array
+                        items:
+                          type: object
+                          required: [storyId, reason]
+                          properties:
+                            storyId:
+                              type: string
+                            reason:
+                              type: string
+                  stories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublishedStory'
+  /api/v1/stories/{storyId}/views:
+    post:
+      summary: Record that the story was opened
+      operationId: recordStoryView
+      description: Counts at most once per person per story per UTC day. Viewers are identified by account, or by an anonymous ffg_visitor cookie set here, hashed with a server secret and the date before storage. Authors' own views, probable bots, and excess new views from one network source are ignored. The response never says whether the view counted.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '202':
+          description: Accepted.
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '404':
+          $ref: '#/components/responses/StoryNotFound'
+  /api/v1/moderation/recommendations/{storyId}:
+    put:
+      summary: Add a public story to team picks
+      operationId: recommendStory
+      description: The reason is shown publicly with the pick. Replaces any existing pick of the same story.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 300
+      responses:
+        '200':
+          description: Recommended.
+        '400':
+          description: Reason length is invalid (invalid-recommendation-reason).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '404':
+          description: The story is not public.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Remove a story from team picks
+      operationId: unrecommendStory
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Removed; the pick stays in history.
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: The story is not currently recommended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1156,6 +1279,16 @@ components:
             - type: string
               format: date-time
             - type: 'null'
+        stats:
+          type: object
+          description: Owner view only. These figures never appear on public pages.
+          properties:
+            totalViews:
+              type: integer
+            weekViews:
+              type: integer
+            approvedComments:
+              type: integer
         followUps:
           type: array
           description: Present in the owner view only; includes private follow-ups.
@@ -1287,6 +1420,11 @@ components:
               createdAt:
                 type: string
                 format: date-time
+    StoryIdList:
+      type: array
+      maxItems: 10
+      items:
+        type: string
     ReviewDecision:
       type: object
       additionalProperties: false

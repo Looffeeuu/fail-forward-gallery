@@ -9,6 +9,8 @@ import { StoryError } from './story-service.mjs';
 const MAX_JSON_BYTES = 8 * 1024;
 const CSRF_COOKIE = 'ffg_csrf';
 const SESSION_COOKIE = 'ffg_session';
+const VISITOR_COOKIE = 'ffg_visitor';
+const VISITOR_COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 const CONTENT_TYPES_BY_PATH = Object.freeze({
   stories: 'story',
   comments: 'comment',
@@ -197,6 +199,8 @@ export function createHttpServer({
   authorControlService,
   notificationService,
   reportService,
+  viewService,
+  rankingService,
   moderationService,
   config,
   logger = console
@@ -208,6 +212,8 @@ export function createHttpServer({
     || !authorControlService
     || !notificationService
     || !reportService
+    || !viewService
+    || !rankingService
     || !moderationService
     || !config
   ) {
@@ -380,6 +386,51 @@ export function createHttpServer({
             content: authorControlService.appeal({ ...contentRequest, input: body })
           });
         }
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/rankings') {
+        sendJson(response, 200, rankingService.getRankings());
+        return;
+      }
+
+      const viewMatch = url.pathname.match(/^\/api\/v1\/stories\/([^/]+)\/views$/);
+      if (request.method === 'POST' && viewMatch) {
+        requireCsrf(request, cookies);
+        // A random visitor cookie lets views be de-duplicated without accounts or IPs.
+        let visitorId = String(cookies[VISITOR_COOKIE] || '');
+        if (!/^[A-Za-z0-9_-]{16,64}$/.test(visitorId)) {
+          visitorId = randomBytes(16).toString('base64url');
+          response.setHeader('Set-Cookie', cookie(VISITOR_COOKIE, visitorId, {
+            maxAge: VISITOR_COOKIE_MAX_AGE,
+            secure: config.isProduction
+          }));
+        }
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        viewService.recordView({
+          storyId: decodeURIComponent(viewMatch[1]),
+          visitorId,
+          accountId: session?.accountId,
+          userAgent: String(request.headers['user-agent'] || ''),
+          sourceAddress: clientIp(request)
+        });
+        // Whether the view counted is deliberately not revealed.
+        sendJson(response, 202, { ok: true });
+        return;
+      }
+
+      const recommendationMatch = url.pathname.match(
+        /^\/api\/v1\/moderation\/recommendations\/([^/]+)$/
+      );
+      if (recommendationMatch && ['PUT', 'DELETE'].includes(request.method)) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const storyId = decodeURIComponent(recommendationMatch[1]);
+        const result = request.method === 'PUT'
+          ? moderationService.recommendStory({ session, storyId, input: await readJson(request) })
+          : moderationService.unrecommendStory({ session, storyId });
+        rankingService.invalidate();
+        sendJson(response, 200, { recommendation: result });
         return;
       }
 
