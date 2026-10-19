@@ -24,6 +24,12 @@ export function normaliseMainlandPhone(phone) {
   return /^1[3-9]\d{9}$/.test(nationalNumber) ? `+86${nationalNumber}` : '';
 }
 
+// Accounts are keyed by this keyed hash, never by the number itself. Staff
+// tools use it to find someone's account from a phone number they are given.
+export function fingerprintPhone(secret, normalisedPhone) {
+  return createHmac('sha256', secret).update(`phone:${normalisedPhone}`).digest('hex');
+}
+
 function publicAccount(account) {
   return Object.freeze({ role: account.role, status: account.status });
 }
@@ -57,9 +63,6 @@ export function createAuthService({
     throw new TypeError('Development moderator phone must be a valid mainland China number.');
   }
 
-  function fingerprintPhone(phone) {
-    return createHmac('sha256', secret).update(`phone:${phone}`).digest('hex');
-  }
 
   function digestCode(phoneFingerprint, nonce, code) {
     return createHmac('sha256', secret)
@@ -141,7 +144,7 @@ export function createAuthService({
       cleanExpiredState(timestamp);
       consumeIpRequest(ip, timestamp);
 
-      const phoneFingerprint = fingerprintPhone(normalisedPhone);
+      const phoneFingerprint = fingerprintPhone(secret, normalisedPhone);
       const lastRequest = lastRequestByPhone.get(phoneFingerprint);
       if (lastRequest !== undefined && timestamp - lastRequest < verificationCooldownMs) {
         const retryAfterSeconds = Math.max(
@@ -193,7 +196,7 @@ export function createAuthService({
 
       const timestamp = now().getTime();
       cleanExpiredState(timestamp);
-      const phoneFingerprint = fingerprintPhone(normalisedPhone);
+      const phoneFingerprint = fingerprintPhone(secret, normalisedPhone);
       const challenge = challenges.get(phoneFingerprint);
 
       if (!challenge || challenge.expiresAt <= timestamp || challenge.attemptsRemaining <= 0) {

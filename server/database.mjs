@@ -351,6 +351,23 @@ export function createDatabase(databasePath) {
     CREATE INDEX IF NOT EXISTS notifications_recipient_index
       ON notifications(recipient_account_id, created_at DESC);
 
+    -- A name the administrators give staff accounts, so the team list is
+    -- readable without storing phone numbers. Members never get one.
+    CREATE TABLE IF NOT EXISTS staff_profiles (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS role_changes (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      previous_role TEXT NOT NULL,
+      new_role TEXT NOT NULL,
+      changed_by_account_id TEXT REFERENCES accounts(id),
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS reports (
       id TEXT PRIMARY KEY,
       content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
@@ -440,6 +457,39 @@ export function createDatabase(databasePath) {
     SET role = ?, updated_at = ?
     WHERE phone_fingerprint = ? AND role = 'member'
   `);
+  const selectAccountById = database.prepare(
+    'SELECT id, role, status, created_at AS createdAt FROM accounts WHERE id = ?'
+  );
+  const updateAccountRole = database.prepare(
+    'UPDATE accounts SET role = ?, updated_at = ? WHERE id = ?'
+  );
+  const upsertStaffLabel = database.prepare([
+    'INSERT INTO staff_profiles (account_id, label, updated_at) VALUES (?, ?, ?)',
+    'ON CONFLICT(account_id) DO UPDATE SET label = excluded.label, updated_at = excluded.updated_at'
+  ].join(' '));
+  const insertRoleChange = database.prepare([
+    'INSERT INTO role_changes (id, account_id, previous_role, new_role, changed_by_account_id, created_at)',
+    'VALUES (?, ?, ?, ?, ?, ?)'
+  ].join(' '));
+  // "Since" is when the account last gained its current role.
+  const selectStaff = database.prepare([
+    'SELECT accounts.id AS accountId, accounts.role AS role,',
+    "COALESCE(staff_profiles.label, '') AS label,",
+    '(SELECT MAX(created_at) FROM role_changes WHERE role_changes.account_id = accounts.id) AS since',
+    'FROM accounts LEFT JOIN staff_profiles ON staff_profiles.account_id = accounts.id',
+    "WHERE accounts.role IN ('moderator', 'administrator')",
+    "ORDER BY accounts.role = 'administrator' DESC, label COLLATE NOCASE ASC"
+  ].join(' '));
+  const selectRoleChanges = database.prepare([
+    'SELECT role_changes.id AS id, role_changes.previous_role AS previousRole,',
+    'role_changes.new_role AS newRole, role_changes.created_at AS createdAt,',
+    "COALESCE(subject.label, '') AS label, COALESCE(actor.label, '') AS changedByLabel,",
+    'role_changes.changed_by_account_id IS NULL AS byServerOperator',
+    'FROM role_changes',
+    'LEFT JOIN staff_profiles subject ON subject.account_id = role_changes.account_id',
+    'LEFT JOIN staff_profiles actor ON actor.account_id = role_changes.changed_by_account_id',
+    'ORDER BY role_changes.created_at DESC, role_changes.id DESC LIMIT ?'
+  ].join(' '));
   const insertSession = database.prepare(`
     INSERT INTO sessions (token_hash, account_id, created_at, expires_at)
     VALUES (?, ?, ?, ?)
@@ -899,6 +949,14 @@ export function createDatabase(databasePath) {
     return selectFollowUpForModeration.get(contentId) || null;
   }
 
+  function applyRoleChange(account, role, changedByAccountId, timestamp) {
+    if (account.role === role) return;
+    updateAccountRole.run(role, timestamp, account.id);
+    insertRoleChange.run(
+      randomUUID(), account.id, account.role, role, changedByAccountId || null, timestamp
+    );
+  }
+
   function withTransaction(work) {
     database.exec('BEGIN IMMEDIATE');
     try {
@@ -998,6 +1056,50 @@ export function createDatabase(databasePath) {
   }
 
   return Object.freeze({
+    // Gives the account behind a phone fingerprint a staff label and role,
+    // creating the account if that person has never signed in.
+    // changedByAccountId is null when a server operator runs the staff CLI.
+    setStaffRoleByPhone({ phoneFingerprint, label, role, changedByAccountId, changedAt }) {
+      const timestamp = changedAt.toISOString();
+      let accountId = null;
+      withTransaction(() => {
+        insertAccount.run(randomUUID(), phoneFingerprint, timestamp, timestamp);
+        const account = selectAccountByPhone.get(phoneFingerprint);
+        accountId = account.id;
+        upsertStaffLabel.run(account.id, label, timestamp);
+        applyRoleChange(account, role, changedByAccountId, timestamp);
+      });
+      return selectAccountById.get(accountId);
+    },
+
+    setStaffRole({ accountId, role, changedByAccountId, changedAt }) {
+      const account = selectAccountById.get(accountId);
+      if (!account) return null;
+      withTransaction(() => {
+        applyRoleChange(account, role, changedByAccountId, changedAt.toISOString());
+      });
+      return selectAccountById.get(accountId);
+    },
+
+    findAccount(accountId) {
+      return selectAccountById.get(accountId) || null;
+    },
+
+    findAccountByPhone(phoneFingerprint) {
+      return selectAccountByPhone.get(phoneFingerprint) || null;
+    },
+
+    listStaff() {
+      return selectStaff.all();
+    },
+
+    listRoleChanges(limit = 20) {
+      return selectRoleChanges.all(limit).map((change) => ({
+        ...change,
+        byServerOperator: Boolean(change.byServerOperator)
+      }));
+    },
+
     findOrCreateAccount(phoneFingerprint, now = new Date(), initialRole = 'member') {
       const timestamp = now.toISOString();
       insertAccount.run(randomUUID(), phoneFingerprint, timestamp, timestamp);

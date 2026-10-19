@@ -131,6 +131,7 @@ The project is in active implementation. The public site serves the static brows
 - Immediate author withdrawal of any story, comment, or follow-up, and a one-time structured appeal of each rejection.
 - Reporting of public content, grouped for reviewers without reporter identities, with safety concerns first.
 - Safety holds and keyword danger signals: possible self-harm or harm to others goes to the top of the review queue, the writer is offered care at once, and reviewers can keep content private for care without treating it as a violation.
+- Team management: administrators appoint and remove reviewers by mobile number (hashed, never stored), with a logged history; the first administrator is set with `npm run staff -- grant-admin`.
 - In-site review notifications with an unread badge.
 - Story rankings refreshed every minute, with de-duplicated, privacy-preserving view counting.
 - Role-protected human-review queue for stories, comments, follow-ups, appeals, and reports, with reasons and immutable audit events.

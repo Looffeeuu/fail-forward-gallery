@@ -8,6 +8,7 @@ import { createNotificationService } from './notification-service.mjs';
 import { createRankingService } from './ranking-service.mjs';
 import { createReportService } from './report-service.mjs';
 import { createSmsProvider } from './sms-provider.mjs';
+import { createStaffService } from './staff-service.mjs';
 import { createStoryResponseService } from './story-response-service.mjs';
 import { createStoryService } from './story-service.mjs';
 import { createViewService } from './view-service.mjs';
@@ -33,6 +34,7 @@ const notificationService = createNotificationService({ database });
 const reportService = createReportService({ database });
 const viewService = createViewService({ database, secret: config.authSecret });
 const rankingService = createRankingService({ database, storyService });
+const staffService = createStaffService({ database, secret: config.authSecret });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
@@ -43,6 +45,7 @@ const server = createHttpServer({
   reportService,
   viewService,
   rankingService,
+  staffService,
   moderationService,
   config
 });

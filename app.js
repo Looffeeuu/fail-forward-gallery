@@ -97,6 +97,19 @@ const rankingState = {
   recommendMessage: ''
 };
 
+const teamState = {
+  data: null,
+  loading: false,
+  errorCode: null,
+  message: '',
+  confirmingRevokeId: null
+};
+const STAFF_ROLE_LABELS = Object.freeze({
+  member: ['成员', 'Member'],
+  moderator: ['审核员', 'Reviewer'],
+  administrator: ['管理员', 'Administrator']
+});
+
 // The one report form open in the story dialog, keyed `${contentType}:${id}`.
 const reportState = {
   targetKey: null,
@@ -181,6 +194,7 @@ function initApp() {
   initPublicStories();
   initModeration();
   initRankings();
+  initTeam();
   initSubmitForm();
   initModal();
   showPage('home');
@@ -233,6 +247,7 @@ function setSiteLanguage(nextLanguage) {
   renderMyStories();
   renderNotifications();
   renderRankings();
+  renderTeam();
   moderationState.message = '';
   renderModeration();
 
@@ -564,6 +579,7 @@ function showPage(pageName) {
   }
   if (pageName === 'advice') renderAdvice();
   if (pageName === 'rankings') loadRankings();
+  if (pageName === 'team') loadTeam();
   if (pageName === 'account' && isSignedIn()) {
     loadMyStories();
     loadNotifications();
@@ -1758,6 +1774,195 @@ function renderComments(story) {
   `;
 }
 
+function initTeam() {
+  const panel = document.getElementById('team-panel');
+  if (!panel || !window.FFG_AUTH) return;
+
+  panel.addEventListener('submit', async (event) => {
+    const form = event.target.closest('[data-appoint-form]');
+    if (!form) return;
+    event.preventDefault();
+    const formData = new FormData(form);
+    await updateTeam(() => window.FFG_CONTENT_API.appointStaff({
+      phone: String(formData.get('staff-phone') || ''),
+      label: String(formData.get('staff-label') || '').trim(),
+      role: String(formData.get('staff-role') || '')
+    }), tagUiState.language === 'zh' ? '已保存。对方用这个手机号登录后即拥有相应权限。' : 'Saved. They have this role as soon as they sign in with that number.');
+  });
+
+  panel.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-staff-action]');
+    if (!button) return;
+    const { staffAction, accountId, role } = button.dataset;
+    if (staffAction === 'revoke') {
+      teamState.confirmingRevokeId = accountId;
+      teamState.message = '';
+      renderTeam();
+      document.querySelector('[data-staff-action="confirm-revoke"]')?.focus();
+      return;
+    }
+    if (staffAction === 'cancel') {
+      teamState.confirmingRevokeId = null;
+      renderTeam();
+      return;
+    }
+    const nextRole = staffAction === 'confirm-revoke' ? 'member' : role;
+    await updateTeam(
+      () => window.FFG_CONTENT_API.changeStaffRole(accountId, nextRole),
+      tagUiState.language === 'zh' ? '权限已更新，立即生效。' : 'Role updated; it applies immediately.'
+    );
+  });
+
+  window.FFG_AUTH.subscribe(() => {
+    if (!window.FFG_AUTH.can('manage-staff')) {
+      teamState.data = null;
+      teamState.message = '';
+    }
+    renderTeam();
+  });
+}
+
+async function loadTeam() {
+  if (!window.FFG_AUTH?.can('manage-staff') || teamState.loading) {
+    renderTeam();
+    return;
+  }
+  teamState.loading = true;
+  try {
+    teamState.data = await window.FFG_CONTENT_API.listTeam();
+    teamState.errorCode = null;
+  } catch (error) {
+    teamState.errorCode = error.code || 'request-failed';
+  } finally {
+    teamState.loading = false;
+    renderTeam();
+  }
+}
+
+async function updateTeam(request, successMessage) {
+  try {
+    teamState.data = await request();
+    teamState.errorCode = null;
+    teamState.message = successMessage;
+    teamState.confirmingRevokeId = null;
+  } catch (error) {
+    teamState.message = getTeamErrorMessage(error.code);
+  }
+  renderTeam();
+  document.querySelector('.team-status')?.focus();
+}
+
+function getTeamErrorMessage(errorCode) {
+  const useChinese = tagUiState.language === 'zh';
+  const messages = {
+    'invalid-phone': ['请输入有效的中国大陆手机号。', 'Enter a valid mainland China mobile number.'],
+    'invalid-staff-label': ['请填写 2–40 个字符的名称。', 'Enter a name of 2–40 characters.'],
+    'invalid-role': ['请选择审核员或管理员。', 'Choose reviewer or administrator.'],
+    'cannot-change-own-role': ['不能修改自己的角色，请让另一位管理员操作。', 'You cannot change your own role; ask another administrator.'],
+    'staff-not-found': ['找不到这位团队成员，列表已刷新。', 'This team member was not found; the list was refreshed.'],
+    'administrator-required': ['只有管理员可以管理团队。', 'Only administrators can manage the team.']
+  };
+  const message = messages[errorCode] || ['操作没有成功，请稍后重试。', 'That did not work. Please try again.'];
+  return message[useChinese ? 0 : 1];
+}
+
+function formatStaffRole(role) {
+  return STAFF_ROLE_LABELS[role]?.[tagUiState.language === 'zh' ? 0 : 1] || role;
+}
+
+function renderTeam() {
+  const panel = document.getElementById('team-panel');
+  if (!panel) return;
+  const useChinese = tagUiState.language === 'zh';
+
+  if (!window.FFG_AUTH?.can('manage-staff')) {
+    panel.innerHTML = `<p class="team-empty">${useChinese ? '只有管理员可以管理审核团队。' : 'Only administrators can manage the review team.'}</p>`;
+    return;
+  }
+  if (!teamState.data) {
+    panel.innerHTML = `<p class="team-empty">${teamState.errorCode
+      ? (useChinese ? '暂时无法加载团队信息，请稍后重试。' : 'The team could not be loaded. Please try again.')
+      : (useChinese ? '正在加载团队……' : 'Loading the team…')}</p>`;
+    return;
+  }
+
+  const date = (value) => (value ? formatOwnedStoryDate(value) : '');
+  panel.innerHTML = `
+    <section class="team-card" aria-labelledby="appoint-heading">
+      <h2 id="appoint-heading">${useChinese ? '任命团队成员' : 'Appoint a team member'}</h2>
+      <p class="form-help">${useChinese
+        ? '对方不需要提前登录：用这个手机号第一次登录时就会拥有权限。手机号只用于找到对应账户，不会被保存或显示。已在团队中的号码会更新名称和角色。'
+        : 'They do not need to sign in first: the role is waiting when they sign in with this number. The number only locates their account and is never stored or shown. A number already on the team updates its name and role.'}</p>
+      <form class="appoint-form" data-appoint-form>
+        <label>${useChinese ? '手机号' : 'Mobile number'}
+          <input name="staff-phone" type="tel" inputmode="numeric" maxlength="13" autocomplete="off" required>
+        </label>
+        <label>${useChinese ? '名称（团队内可见）' : 'Name (visible to the team)'}
+          <input name="staff-label" type="text" minlength="2" maxlength="40" autocomplete="off" required>
+        </label>
+        <label>${useChinese ? '角色' : 'Role'}
+          <select name="staff-role">
+            <option value="moderator">${formatStaffRole('moderator')}</option>
+            <option value="administrator">${formatStaffRole('administrator')}</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-primary">${useChinese ? '保存' : 'Save'}</button>
+      </form>
+      ${teamState.message ? `<p class="team-status" role="status" tabindex="-1">${escapeHtml(teamState.message)}</p>` : ''}
+    </section>
+
+    <section class="team-card" aria-labelledby="team-heading">
+      <h2 id="team-heading">${useChinese ? '当前团队' : 'Current team'}</h2>
+      <ul class="team-list">
+        ${teamState.data.staff.map((member) => {
+          const id = escapeHtml(member.accountId);
+          const actions = member.isYou
+            ? `<span class="team-you">${useChinese ? '你（角色需由其他管理员调整）' : 'You (another administrator changes your role)'}</span>`
+            : teamState.confirmingRevokeId === member.accountId
+              ? `<span>${useChinese ? `撤销 ${escapeHtml(member.label)} 的权限？立即生效。` : `Remove ${escapeHtml(member.label)} from the team? This applies immediately.`}</span>
+                 <button type="button" class="btn btn-reject btn-sm" data-staff-action="confirm-revoke" data-account-id="${id}">${useChinese ? '确认撤销' : 'Remove'}</button>
+                 <button type="button" class="btn btn-ghost btn-sm" data-staff-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>`
+              : `<button type="button" class="btn btn-secondary btn-sm" data-staff-action="change" data-account-id="${id}" data-role="${member.role === 'administrator' ? 'moderator' : 'administrator'}">
+                   ${member.role === 'administrator' ? (useChinese ? '改为审核员' : 'Make reviewer') : (useChinese ? '设为管理员' : 'Make administrator')}
+                 </button>
+                 <button type="button" class="btn btn-ghost btn-sm" data-staff-action="revoke" data-account-id="${id}">${useChinese ? '撤销权限' : 'Remove from team'}</button>`;
+          return `
+            <li class="team-member">
+              <div>
+                <strong>${escapeHtml(member.label || (useChinese ? '（未命名）' : '(unnamed)'))}</strong>
+                <span class="review-status">${escapeHtml(formatStaffRole(member.role))}</span>
+                ${member.since ? `<small>${useChinese ? '自' : 'Since'} ${escapeHtml(date(member.since))}</small>` : ''}
+              </div>
+              <div class="owner-control-actions">${actions}</div>
+            </li>
+          `;
+        }).join('')}
+      </ul>
+    </section>
+
+    <section class="team-card" aria-labelledby="changes-heading">
+      <h2 id="changes-heading">${useChinese ? '最近的权限变更' : 'Recent role changes'}</h2>
+      ${teamState.data.changes.length ? `
+        <ul class="team-changes">
+          ${teamState.data.changes.map((change) => {
+            const actor = change.byServerOperator
+              ? (useChinese ? '服务器管理员' : 'A server operator')
+              : (change.changedByLabel || (useChinese ? '一位管理员' : 'An administrator'));
+            return `
+              <li>
+                <span>${escapeHtml(useChinese
+                  ? `${actor} 将 ${change.label || '（未命名）'} 从${formatStaffRole(change.previousRole)}改为${formatStaffRole(change.newRole)}`
+                  : `${actor} changed ${change.label || '(unnamed)'} from ${formatStaffRole(change.previousRole)} to ${formatStaffRole(change.newRole)}`)}</span>
+                <small>${escapeHtml(date(change.createdAt))}</small>
+              </li>
+            `;
+          }).join('')}
+        </ul>
+      ` : `<p class="form-help">${useChinese ? '还没有权限变更记录。' : 'No role changes yet.'}</p>`}
+    </section>
+  `;
+}
+
 function initRankings() {
   if (!window.FFG_CONTENT_API?.enabled) return;
   document.querySelectorAll('[data-server-only]').forEach((element) => { element.hidden = false; });
@@ -2339,6 +2544,10 @@ async function loadModerationStories() {
     if (requestVersion !== moderationState.requestVersion) return;
     moderationState.errorCode = error.code || 'request-failed';
     moderationState.loaded = false;
+    // A revoked reviewer's page still shows reviewer tools until the role is re-read.
+    if (['moderator-required', 'authentication-required'].includes(error.code)) {
+      window.FFG_AUTH.restoreSession().catch(() => {});
+    }
   } finally {
     if (requestVersion === moderationState.requestVersion) {
       moderationState.loading = false;

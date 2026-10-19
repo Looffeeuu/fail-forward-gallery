@@ -166,6 +166,7 @@
     if (action === 'review-content') {
       return ['moderator', 'administrator'].includes(state.account.role);
     }
+    if (action === 'manage-staff') return state.account.role === 'administrator';
     return ['create-story', 'create-response', 'create-follow-up', 'manage-own-content'].includes(action);
   }
 
@@ -320,6 +321,9 @@ function renderAuthUi(authState) {
   summary.hidden = !signedIn;
   document.querySelectorAll('[data-moderator-only]').forEach((element) => {
     element.hidden = !isReviewer;
+  });
+  document.querySelectorAll('[data-admin-only]').forEach((element) => {
+    element.hidden = !(signedIn && authState.account?.role === 'administrator');
   });
   if (lockedStories) lockedStories.hidden = signedIn;
   if (emptyStories) emptyStories.hidden = !signedIn;

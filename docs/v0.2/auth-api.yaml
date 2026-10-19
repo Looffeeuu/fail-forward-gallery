@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, safety holds, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, safety holds, team management, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -952,6 +952,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/admin/staff:
+    get:
+      summary: List reviewers, administrators, and recent role changes
+      operationId: listTeam
+      description: Administrators only. Staff are identified by the name an administrator gave them; phone numbers are never stored or returned.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: The team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required (administrator-required).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Appoint someone as reviewer or administrator by mobile number
+      operationId: appointStaff
+      description: The number is only hashed to find or create the account, so the person need not have signed in before. Re-appointing a number updates its name and role. Administrators cannot change their own role this way.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, label, role]
+              properties:
+                phone:
+                  type: string
+                label:
+                  type: string
+                  minLength: 2
+                  maxLength: 40
+                role:
+                  type: string
+                  enum: [moderator, administrator]
+      responses:
+        '200':
+          description: The updated team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          description: Invalid phone, name, or role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required, or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The number belongs to the administrator making the request and the role would change (cannot-change-own-role).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/admin/staff/{accountId}/role:
+    post:
+      summary: Change or remove a team member's role
+      operationId: changeStaffRole
+      description: member removes them from the team. Applies to their open sessions immediately. Administrators cannot change their own role, so at least one administrator always remains.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [member, moderator, administrator]
+      responses:
+        '200':
+          description: The updated team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required, or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Not a current team member (staff-not-found).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Administrators cannot change their own role (cannot-change-own-role).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1504,6 +1630,49 @@ components:
       maxItems: 10
       items:
         type: string
+    Team:
+      type: object
+      required: [staff, changes]
+      properties:
+        staff:
+          type: array
+          items:
+            type: object
+            required: [accountId, label, role, isYou]
+            properties:
+              accountId:
+                type: string
+                description: Internal identifier, returned only to administrators.
+              label:
+                type: string
+              role:
+                type: string
+                enum: [moderator, administrator]
+              since:
+                oneOf:
+                  - type: string
+                    format: date-time
+                  - type: 'null'
+              isYou:
+                type: boolean
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              previousRole:
+                type: string
+              newRole:
+                type: string
+              changedByLabel:
+                type: string
+              byServerOperator:
+                type: boolean
+              createdAt:
+                type: string
+                format: date-time
     ReviewDecision:
       type: object
       additionalProperties: false

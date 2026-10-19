@@ -51,7 +51,12 @@
     'already-reported',
     'report-rate-limited',
     'invalid-content',
-    'invalid-recommendation-reason'
+    'invalid-recommendation-reason',
+    'administrator-required',
+    'invalid-staff-label',
+    'invalid-role',
+    'cannot-change-own-role',
+    'staff-not-found'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -235,6 +240,29 @@
         reasonCode: String(report?.reasonCode || ''),
         details: String(report?.details || ''),
         createdAt: String(report?.createdAt || '')
+      })))
+    });
+  }
+
+  function sanitiseTeam(payload) {
+    const roles = new Set(['member', 'moderator', 'administrator']);
+    const role = (value) => (roles.has(value) ? value : 'member');
+    return Object.freeze({
+      staff: Object.freeze((Array.isArray(payload.staff) ? payload.staff : []).map((member) => Object.freeze({
+        accountId: String(member?.accountId || ''),
+        label: String(member?.label || ''),
+        role: role(member?.role),
+        since: optionalString(member?.since),
+        isYou: member?.isYou === true
+      }))),
+      changes: Object.freeze((Array.isArray(payload.changes) ? payload.changes : []).map((change) => Object.freeze({
+        id: String(change?.id || ''),
+        label: String(change?.label || ''),
+        previousRole: role(change?.previousRole),
+        newRole: role(change?.newRole),
+        changedByLabel: String(change?.changedByLabel || ''),
+        byServerOperator: change?.byServerOperator === true,
+        createdAt: String(change?.createdAt || '')
       })))
     });
   }
@@ -570,6 +598,24 @@
           { method: 'POST', body: JSON.stringify(input) }
         );
         return payload.content;
+      },
+
+      async listTeam() {
+        return sanitiseTeam(await adapter.requestJson('/api/v1/admin/staff', { method: 'GET' }));
+      },
+
+      async appointStaff(input) {
+        return sanitiseTeam(await adapter.requestJson('/api/v1/admin/staff', {
+          method: 'POST',
+          body: JSON.stringify(input)
+        }));
+      },
+
+      async changeStaffRole(accountId, role) {
+        return sanitiseTeam(await adapter.requestJson(
+          `/api/v1/admin/staff/${encodeURIComponent(accountId)}/role`,
+          { method: 'POST', body: JSON.stringify({ role }) }
+        ));
       },
 
       async listNotifications() {

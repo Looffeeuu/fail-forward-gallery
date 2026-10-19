@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { AuthError } from './auth-service.mjs';
 import { ModerationError } from './moderation-service.mjs';
+import { StaffError } from './staff-service.mjs';
 import { StoryError } from './story-service.mjs';
 
 const MAX_JSON_BYTES = 8 * 1024;
@@ -202,6 +203,7 @@ export function createHttpServer({
   reportService,
   viewService,
   rankingService,
+  staffService,
   moderationService,
   config,
   logger = console
@@ -215,6 +217,7 @@ export function createHttpServer({
     || !reportService
     || !viewService
     || !rankingService
+    || !staffService
     || !moderationService
     || !config
   ) {
@@ -387,6 +390,36 @@ export function createHttpServer({
             content: authorControlService.appeal({ ...contentRequest, input: body })
           });
         }
+        return;
+      }
+
+      if (url.pathname === '/api/v1/admin/staff' && ['GET', 'POST'].includes(request.method)) {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        if (request.method === 'GET') {
+          sendJson(response, 200, staffService.listTeam(session));
+          return;
+        }
+        requireCsrf(request, cookies);
+        const body = await readJson(request);
+        sendJson(response, 200, staffService.appoint({
+          session,
+          phone: body.phone,
+          label: body.label,
+          role: body.role
+        }));
+        return;
+      }
+
+      const staffRoleMatch = url.pathname.match(/^\/api\/v1\/admin\/staff\/([^/]+)\/role$/);
+      if (request.method === 'POST' && staffRoleMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 200, staffService.changeRole({
+          session,
+          accountId: decodeURIComponent(staffRoleMatch[1]),
+          role: body.role
+        }));
         return;
       }
 
@@ -585,6 +618,7 @@ export function createHttpServer({
         error instanceof AuthError
         || error instanceof StoryError
         || error instanceof ModerationError
+        || error instanceof StaffError
       ) {
         const headers = error.retryAfterSeconds
           ? { 'Retry-After': String(error.retryAfterSeconds) }
