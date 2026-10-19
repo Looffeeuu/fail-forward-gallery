@@ -80,6 +80,23 @@ const notificationState = {
   pollTimer: null
 };
 
+// The one report form open in the story dialog, keyed `${contentType}:${id}`.
+const reportState = {
+  targetKey: null,
+  messageKey: null,
+  message: ''
+};
+
+const REPORT_REASON_OPTIONS = [
+  { value: 'personal-information', zh: '泄露了个人信息', en: 'Shares personal information' },
+  { value: 'harassment', zh: '攻击或骚扰', en: 'Attacks or harasses someone' },
+  { value: 'encourages-harm', zh: '鼓励伤害行为', en: 'Encourages harmful behaviour' },
+  { value: 'spam', zh: '广告或灌水', en: 'Advertising or spam' },
+  { value: 'outside-boundary', zh: '不符合作者选择的回应方式', en: 'Ignores the author’s chosen response type' },
+  { value: 'safety-concern', zh: '作者可能处于危险中', en: 'The author may be in danger' },
+  { value: 'other', zh: '其他原因', en: 'Something else' }
+];
+
 const APPEAL_REASON_OPTIONS = [
   { value: 'context-misunderstood', zh: '审核误解了内容的语境', en: 'The reviewer misunderstood the context' },
   { value: 'no-identifying-details', zh: '内容没有包含可识别的个人信息', en: 'The content does not identify anyone' },
@@ -108,13 +125,15 @@ const MODERATION_ACTIONS = Object.freeze({
   story: 'decideStory',
   comment: 'decideComment',
   'follow-up': 'decideFollowUp',
-  appeal: 'decideAppeal'
+  appeal: 'decideAppeal',
+  report: 'decideReportedContent'
 });
 const MODERATION_DECISIONS = Object.freeze({
   story: ['approve', 'reject'],
   comment: ['approve', 'reject'],
   'follow-up': ['approve', 'reject'],
-  appeal: ['overturn', 'uphold']
+  appeal: ['overturn', 'uphold'],
+  report: ['remove', 'dismiss']
 });
 
 const followUpState = {
@@ -356,6 +375,7 @@ function normalisePublishedStory(story) {
       visibility: 'public',
       reviewStatus: 'approved',
       publishedAt: followUp.publishedAt,
+      serverId: String(followUp.id),
       source: 'server-published'
     })),
     createdAt: story.publishedAt || '',
@@ -863,6 +883,12 @@ function initModal() {
       return;
     }
 
+    const reportButton = event.target.closest('[data-report-action]');
+    if (reportButton) {
+      handleReportAction(reportButton);
+      return;
+    }
+
     const actionButton = event.target.closest('[data-followup-action]');
     if (!actionButton) return;
 
@@ -890,6 +916,13 @@ function initModal() {
   });
 
   content?.addEventListener('submit', (event) => {
+    const reportForm = event.target.closest('[data-report-form]');
+    if (reportForm) {
+      event.preventDefault();
+      submitReport(reportForm);
+      return;
+    }
+
     const followUpForm = event.target.closest('.follow-up-form');
     if (followUpForm) {
       event.preventDefault();
@@ -943,6 +976,7 @@ function openStoryModal(storyId, trigger) {
   if (!story || !overlay || !modal) return;
 
   resetFollowUpFlow();
+  resetReportState();
   appState.activeStoryId = storyId;
   appState.lastStoryTrigger = trigger;
   renderModalStory(story);
@@ -1008,6 +1042,7 @@ function renderModalStory(story) {
       <div class="story-tags">
         ${story.tags.map((tag) => `<span class="story-tag">${escapeHtml(getTagLabel(tag))}</span>`).join('')}
       </div>
+      ${isServerStory(story) && !isOwnedStory(story) ? renderReportControl('story', story.id) : ''}
     </article>
     ${renderFollowUpInvite(story)}
     ${renderFollowUpTimeline(story)}
@@ -1144,6 +1179,9 @@ function renderFollowUpCard(followUp) {
             : followUp.publishedLabel || 'Published just now · Prototype')}</span>
         <span>${useChinese ? '来自原匿名作者的更新' : 'Update from the original anonymous author'}</span>
       </footer>
+      ${followUp.source === 'server-published' && !isOwnedStory(findStoryById(appState.activeStoryId))
+        ? renderReportControl('follow_up', followUp.serverId)
+        : ''}
     </article>
   `;
 }
@@ -1358,6 +1396,22 @@ function getResponseErrorMessage(errorCode) {
     'invalid-comment': {
       zh: '请填写1–1000个字符的回应。',
       en: 'Write a response between 1 and 1,000 characters.'
+    },
+    'cannot-report-own-content': {
+      zh: '这是你自己的内容，可以在“我的故事”中直接撤回。',
+      en: 'This is your own content. You can withdraw it from My stories.'
+    },
+    'already-reported': {
+      zh: '你已经举报过这条内容，审核员会处理。',
+      en: 'You have already reported this. A reviewer will handle it.'
+    },
+    'report-rate-limited': {
+      zh: '你最近提交的举报较多，请稍后再试。',
+      en: 'You have sent several reports recently. Please try again later.'
+    },
+    'invalid-report-details': {
+      zh: '补充说明最多500个字符；选择“其他原因”时请简单说明。',
+      en: 'Details can be up to 500 characters; “Something else” needs a short description.'
     },
     'content-not-found': {
       zh: '找不到这条内容，可能已经被撤回。',
@@ -1610,6 +1664,7 @@ function renderComments(story) {
           <strong>${escapeHtml(tagUiState.language === 'zh' && comment.author.startsWith('Anonymous') ? '匿名用户' : comment.author)}</strong>
           <span class="comment-type">${formatCommentType(comment.type)}</span>
           <p>${escapeHtml(comment.text)}</p>
+          ${isServerStory(story) ? renderReportControl('comment', comment.id) : ''}
         </article>
       `).join('')
     : `<p>${tagUiState.language === 'zh'
@@ -1655,6 +1710,95 @@ function renderComments(story) {
       </form>
     </section>
   `;
+}
+
+function resetReportState() {
+  reportState.targetKey = null;
+  reportState.messageKey = null;
+  reportState.message = '';
+}
+
+function renderReportControl(contentType, contentId) {
+  const useChinese = tagUiState.language === 'zh';
+  const key = `${contentType}:${contentId}`;
+  const dataAttributes = `data-content-type="${escapeHtml(contentType)}" data-content-id="${escapeHtml(contentId)}"`;
+
+  if (reportState.messageKey === key) {
+    return `<p class="report-status" role="status" tabindex="-1">${escapeHtml(reportState.message)}</p>`;
+  }
+  if (reportState.targetKey !== key) {
+    return `<button type="button" class="report-link" data-report-action="open" ${dataAttributes}>${useChinese ? '举报' : 'Report'}</button>`;
+  }
+  if (!isSignedIn()) {
+    return `
+      <div class="report-panel">
+        <p>${useChinese ? '登录后才能举报，这样可以防止举报被滥用。你的身份不会告诉作者。' : 'Sign in to report; this keeps reports from being misused. Authors never learn who reported.'}</p>
+        <div class="owner-control-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-page="account">${useChinese ? '去登录' : 'Sign in'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-report-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const fieldId = `report-${key.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  return `
+    <form class="report-panel" data-report-form ${dataAttributes}>
+      <label for="${fieldId}-reason">${useChinese ? '举报原因' : 'Why should a reviewer look at this?'}</label>
+      <select id="${fieldId}-reason" name="report-reason" required>
+        <option value="">${useChinese ? '请选择' : 'Choose one'}</option>
+        ${REPORT_REASON_OPTIONS.map((option) => `<option value="${option.value}">${escapeHtml(useChinese ? option.zh : option.en)}</option>`).join('')}
+      </select>
+      <label for="${fieldId}-details">${useChinese ? '补充说明（选填，选“其他原因”时必填）' : 'Details (optional; required for “Something else”)'}</label>
+      <textarea id="${fieldId}-details" name="report-details" rows="2" maxlength="500"></textarea>
+      <p class="form-help">${useChinese ? '审核员会复查这条内容，作者不会知道是谁举报的。' : 'A reviewer will look again. The author is never told who reported.'}</p>
+      <div class="owner-control-actions">
+        <button type="submit" class="btn btn-primary btn-sm">${useChinese ? '提交举报' : 'Send report'}</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-report-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>
+      </div>
+      <p class="report-error" role="status" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+function handleReportAction(button) {
+  const story = findStoryById(appState.activeStoryId);
+  if (!story) return;
+  resetReportState();
+  if (button.dataset.reportAction === 'open') {
+    reportState.targetKey = `${button.dataset.contentType}:${button.dataset.contentId}`;
+  }
+  renderModalStory(story);
+  document.querySelector('.report-panel select, .report-panel button')?.focus();
+}
+
+async function submitReport(form) {
+  const { contentType, contentId } = form.dataset;
+  const reasonCode = form.querySelector('[name="report-reason"]').value;
+  const details = form.querySelector('[name="report-details"]').value.trim();
+  const error = form.querySelector('.report-error');
+  if (!reasonCode || (reasonCode === 'other' && details.length < 5)) {
+    error.textContent = tagUiState.language === 'zh'
+      ? '请选择举报原因；选择“其他原因”时请简单说明。'
+      : 'Choose a reason; “Something else” needs a short description.';
+    return;
+  }
+
+  form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  try {
+    await window.FFG_CONTENT_API.reportContent(contentType, contentId, { reasonCode, details });
+    resetReportState();
+    reportState.messageKey = `${contentType}:${contentId}`;
+    reportState.message = tagUiState.language === 'zh'
+      ? '已收到举报，审核员会尽快复查。处理结果会出现在你的通知里。'
+      : 'Report received. A reviewer will look soon; the outcome will appear in your notifications.';
+    const story = findStoryById(appState.activeStoryId);
+    if (story) renderModalStory(story);
+    document.querySelector('.report-status')?.focus();
+  } catch (requestError) {
+    form.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+    error.textContent = getResponseErrorMessage(requestError.code);
+  }
 }
 
 function renderServerCommentForm(story) {
@@ -1872,20 +2016,26 @@ async function loadModerationStories() {
   renderModeration(authState);
 
   try {
-    const [storyQueue, commentQueue, followUpQueue, appealQueue] = await Promise.all([
+    const [storyQueue, commentQueue, followUpQueue, appealQueue, reportQueue] = await Promise.all([
       window.FFG_CONTENT_API.listModerationStories(),
       window.FFG_CONTENT_API.listModerationComments(),
       window.FFG_CONTENT_API.listModerationFollowUps(),
-      window.FFG_CONTENT_API.listModerationAppeals()
+      window.FFG_CONTENT_API.listModerationAppeals(),
+      window.FFG_CONTENT_API.listReportedContent()
     ]);
     if (requestVersion !== moderationState.requestVersion) return;
-    // Oldest first across all content types, so nothing waits behind a busy type.
+    // Safety concerns first; otherwise oldest first across all types, so nothing
+    // waits behind a busy type.
     moderationState.items = [
       ...storyQueue.map((item) => ({ contentType: 'story', item })),
       ...commentQueue.map((item) => ({ contentType: 'comment', item })),
       ...followUpQueue.map((item) => ({ contentType: 'follow-up', item })),
-      ...appealQueue.map((item) => ({ contentType: 'appeal', item }))
-    ].sort((first, second) => first.item.createdAt.localeCompare(second.item.createdAt));
+      ...appealQueue.map((item) => ({ contentType: 'appeal', item })),
+      ...reportQueue.map((item) => ({ contentType: 'report', item }))
+    ].sort((first, second) => (
+      Number(Boolean(second.item.hasSafetyConcern)) - Number(Boolean(first.item.hasSafetyConcern))
+      || first.item.createdAt.localeCompare(second.item.createdAt)
+    ));
     moderationState.loaded = true;
   } catch (error) {
     if (requestVersion !== moderationState.requestVersion) return;
@@ -1968,6 +2118,10 @@ function getModerationDecisionMessage(contentType, decision) {
     appeal: {
       overturn: ['已撤销原决定，内容现已公开。', 'The original decision was reversed and the content is now public.'],
       uphold: ['已维持原决定，复核理由已保存给作者查看。', 'The original decision was upheld. The reason is saved for the author.']
+    },
+    report: {
+      remove: ['内容已移除，作者和举报人都会收到通知；作者可以申诉。', 'The content was removed. The author and reporters are notified, and the author may appeal.'],
+      dismiss: ['已保留内容，举报人会收到处理结果。', 'The content stays public. Reporters are told the outcome.']
     }
   };
   return messages[contentType][decision][useChinese ? 0 : 1];
@@ -1975,6 +2129,7 @@ function getModerationDecisionMessage(contentType, decision) {
 
 function renderModerationItem({ contentType, item }) {
   if (contentType === 'appeal') return renderAppealModerationItem(item);
+  if (contentType === 'report') return renderReportModerationItem(item);
   const useChinese = tagUiState.language === 'zh';
   const reasonId = `review-reason-${contentType}-${item.id}`;
   const automatedLabel = item.automatedReviewStatus === 'not-configured' || !item.automatedReviewStatus
@@ -2069,19 +2224,73 @@ function renderModerationContentBody(contentType, content) {
   return `<p class="moderation-story-body">${escapeHtml(content.content)}</p>`;
 }
 
+function getContentHeading(contentType, content) {
+  const useChinese = tagUiState.language === 'zh';
+  return contentType === 'story'
+    ? content.title
+    : `${useChinese ? '所属故事：' : 'On: '}${content.storyTitle}`;
+}
+
+function getContentTypeLabel(contentType) {
+  const useChinese = tagUiState.language === 'zh';
+  return {
+    story: useChinese ? '故事' : 'Story',
+    comment: useChinese ? '回应' : 'Response',
+    follow_up: useChinese ? '后续' : 'Follow-up'
+  }[contentType];
+}
+
+// Reports on one item are shown together, without reporter identities.
+function renderReportModerationItem(group) {
+  const useChinese = tagUiState.language === 'zh';
+  const reasonId = `review-reason-report-${group.id.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  return `
+    <article class="moderation-item is-report${group.hasSafetyConcern ? ' is-safety' : ''}">
+      <div class="moderation-item-heading">
+        <div>
+          <span class="story-board">${escapeHtml(`${useChinese ? '举报' : 'Report'} · ${getContentTypeLabel(group.contentType)} · ${group.reportCount}`)}</span>
+          <h3>${escapeHtml(getContentHeading(group.contentType, group.content))}</h3>
+        </div>
+        <span class="review-status">${useChinese ? '已公开 · 待复查' : 'Public · needs re-review'}</span>
+      </div>
+      ${group.hasSafetyConcern ? `
+        <p class="appeal-self-review-note">${useChinese
+          ? '有人认为作者可能处于危险中，请优先处理。正式版本会提供经过核验的地区求助资源；当前版本不会编造热线信息。'
+          : 'Someone thinks the author may be in danger. Handle this first. The live platform will offer verified regional support; this version does not invent hotline details.'}</p>
+      ` : ''}
+      ${renderModerationContentBody(group.contentType, group.content)}
+      <ul class="report-reasons">
+        ${group.reports.map((report) => {
+          const reason = REPORT_REASON_OPTIONS.find((option) => option.value === report.reasonCode);
+          return `
+            <li>
+              <strong>${escapeHtml(reason ? (useChinese ? reason.zh : reason.en) : report.reasonCode)}</strong>
+              ${report.details ? `<p>${escapeHtml(report.details)}</p>` : ''}
+              <small>${escapeHtml(formatOwnedStoryDate(report.createdAt))}</small>
+            </li>
+          `;
+        }).join('')}
+      </ul>
+      <form class="moderation-decision-form" data-moderation-form data-content-type="report" data-content-id="${escapeHtml(group.id)}">
+        <label for="${escapeHtml(reasonId)}">${useChinese ? '处理理由（必填，移除时会显示给作者）' : 'Reason (required; shown to the author if removed)'}</label>
+        <textarea id="${escapeHtml(reasonId)}" name="review-reason" rows="3" minlength="8" maxlength="500" required></textarea>
+        <div class="moderation-actions">
+          <button type="submit" class="btn btn-reject" data-review-decision="remove">${useChinese ? '移除内容' : 'Remove content'}</button>
+          <button type="submit" class="btn btn-secondary" data-review-decision="dismiss">${useChinese ? '保留内容' : 'Keep content'}</button>
+        </div>
+        <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
+      </form>
+    </article>
+  `;
+}
+
 // An appeal shows the rejected content, the original reason, and the author's
 // structured appeal side by side, so the reviewer can judge the decision itself.
 function renderAppealModerationItem(appeal) {
   const useChinese = tagUiState.language === 'zh';
   const content = appeal.content;
-  const typeLabel = {
-    story: useChinese ? '故事' : 'Story',
-    comment: useChinese ? '回应' : 'Response',
-    follow_up: useChinese ? '后续' : 'Follow-up'
-  }[appeal.contentType];
-  const heading = appeal.contentType === 'story'
-    ? content.title
-    : `${useChinese ? '所属故事：' : 'On: '}${content.storyTitle}`;
+  const typeLabel = getContentTypeLabel(appeal.contentType);
+  const heading = getContentHeading(appeal.contentType, content);
   const reason = APPEAL_REASON_OPTIONS.find((option) => option.value === appeal.reasonCode);
   const reasonId = `review-reason-appeal-${appeal.id}`;
 
@@ -2285,7 +2494,18 @@ function getNotificationText(notification) {
     comment: useChinese ? `你对《${title}》的回应` : `Your response to “${title}”`,
     follow_up: useChinese ? `你在《${title}》下的后续` : `Your follow-up to “${title}”`
   }[notification.contentType] || title;
+  if (['report-actioned', 'report-dismissed'].includes(notification.kind)) {
+    const reported = {
+      story: useChinese ? `故事《${title}》` : `the story “${title}”`,
+      comment: useChinese ? `《${title}》下的一条回应` : `a response to “${title}”`,
+      follow_up: useChinese ? `《${title}》下的一条后续` : `a follow-up to “${title}”`
+    }[notification.contentType];
+    return notification.kind === 'report-actioned'
+      ? (useChinese ? `你举报的${reported}已被移除。感谢你帮助维护社区。` : `You reported ${reported}; it has been removed. Thank you.`)
+      : (useChinese ? `你举报的${reported}经复查后未发现违反社区规范，已保留。` : `You reported ${reported}; a reviewer found no rule was broken, so it stays.`);
+  }
   const outcomes = {
+    removed: ['因被举报，经审核员复查后已从公开页面移除。可以在下方查看理由，或提交申诉。', 'was removed from public pages after a report. See the reason below, or appeal.'],
     approved: ['已通过审核并公开。', 'was approved and is now public.'],
     rejected: ['未通过审核。可以在下方查看审核说明，或提交申诉。', 'was not approved. See the review note below, or appeal.'],
     'appeal-overturned': ['申诉成功，原决定已撤销，内容已公开。', 'was published after your appeal was accepted.'],

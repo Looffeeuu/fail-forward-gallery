@@ -129,13 +129,14 @@ The project is in active implementation. The public site serves the static brows
 - Server-backed story submission and private “My Stories” status.
 - Signed-in comments that follow the author's response boundary, and author-only follow-ups that can be public or private.
 - Immediate author withdrawal of any story, comment, or follow-up, and a one-time structured appeal of each rejection.
+- Reporting of public content, grouped for reviewers without reporter identities, with safety concerns first.
 - In-site review notifications with an unread badge.
-- Role-protected human-review queue for stories, comments, and follow-ups, with approve/reject reasons and immutable audit events.
+- Role-protected human-review queue for stories, comments, follow-ups, appeals, and reports, with reasons and immutable audit events.
 - Public API access only to human-approved anonymous content.
 
 ### Next implementation priorities
 
-1. Content reporting and moderator wellbeing procedures.
+1. Moderator wellbeing procedures and a verified regional crisis-resource process.
 2. Compliant AI-assisted risk classification with human-only publication approval.
 3. Responsible ranking and discovery with rate limiting and anti-manipulation safeguards.
 4. Production SMS provider and regional PostgreSQL deployment ahead of the pilot.

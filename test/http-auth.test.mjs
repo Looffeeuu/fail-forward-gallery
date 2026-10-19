@@ -7,6 +7,7 @@ import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
 import { createNotificationService } from '../server/notification-service.mjs';
+import { createReportService } from '../server/report-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
 
@@ -48,6 +49,7 @@ test('HTTP authentication flow uses CSRF and HttpOnly session cookies', async (t
     storyResponseService: createStoryResponseService({ database }),
     authorControlService: createAuthorControlService({ database }),
     notificationService: createNotificationService({ database }),
+    reportService: createReportService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

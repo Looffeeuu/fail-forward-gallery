@@ -7,6 +7,7 @@ import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
 import { createModerationService } from '../server/moderation-service.mjs';
 import { createNotificationService } from '../server/notification-service.mjs';
+import { createReportService } from '../server/report-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
 
@@ -73,6 +74,7 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     storyResponseService: createStoryResponseService({ database }),
     authorControlService: createAuthorControlService({ database }),
     notificationService: createNotificationService({ database }),
+    reportService: createReportService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -210,6 +212,26 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   assert.equal(overturn.payload.appeal.status, 'overturned');
   const withComment = await visitor.send('/api/v1/stories');
   assert.equal(withComment.payload.stories[0].comments.length, 1);
+
+  // Reports: signed-in readers only; reviewers see them grouped and decide once.
+  const anonymousReport = await visitor.send(`/api/v1/stories/${story.id}/reports`, {
+    method: 'POST',
+    body: { reasonCode: 'spam' }
+  });
+  assert.equal(anonymousReport.status, 401);
+  const report = await reader.send(`/api/v1/stories/${story.id}/reports`, {
+    method: 'POST',
+    body: { reasonCode: 'spam', details: 'Looks like an advert.' }
+  });
+  assert.equal(report.status, 201);
+  const reported = await moderator.send('/api/v1/moderation/reports');
+  assert.equal(reported.payload.reported[0].reportCount, 1);
+  const keep = await moderator.send(`/api/v1/moderation/reports/stories/${story.id}/decision`, {
+    method: 'POST',
+    body: { decision: 'dismiss', reason: 'No advertising in the story.' }
+  });
+  assert.equal(keep.status, 200);
+  assert.equal(keep.payload.result.status, 'kept');
 
   // Withdrawal: only the author's own story, and it leaves the public feed at once.
   const strangerWithdraw = await reader.send(`/api/v1/me/stories/${story.id}/withdraw`, {

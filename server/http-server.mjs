@@ -196,6 +196,7 @@ export function createHttpServer({
   storyResponseService,
   authorControlService,
   notificationService,
+  reportService,
   moderationService,
   config,
   logger = console
@@ -206,6 +207,7 @@ export function createHttpServer({
     || !storyResponseService
     || !authorControlService
     || !notificationService
+    || !reportService
     || !moderationService
     || !config
   ) {
@@ -378,6 +380,48 @@ export function createHttpServer({
             content: authorControlService.appeal({ ...contentRequest, input: body })
           });
         }
+        return;
+      }
+
+      const reportMatch = url.pathname.match(
+        /^\/api\/v1\/(stories|comments|follow-ups)\/([^/]+)\/reports$/
+      );
+      if (request.method === 'POST' && reportMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 201, {
+          report: reportService.createReport({
+            accountId: session?.accountId,
+            contentType: CONTENT_TYPES_BY_PATH[reportMatch[1]],
+            contentId: decodeURIComponent(reportMatch[2]),
+            input: body
+          })
+        });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/moderation/reports') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        sendJson(response, 200, { reported: moderationService.listReportedContent(session) });
+        return;
+      }
+
+      const reportDecisionMatch = url.pathname.match(
+        /^\/api\/v1\/moderation\/reports\/(stories|comments|follow-ups)\/([^/]+)\/decision$/
+      );
+      if (request.method === 'POST' && reportDecisionMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 200, {
+          result: moderationService.decideReports({
+            session,
+            contentType: CONTENT_TYPES_BY_PATH[reportDecisionMatch[1]],
+            contentId: decodeURIComponent(reportDecisionMatch[2]),
+            input: body
+          })
+        });
         return;
       }
 

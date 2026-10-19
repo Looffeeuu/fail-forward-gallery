@@ -5,6 +5,7 @@ import { createDatabase } from './database.mjs';
 import { createHttpServer } from './http-server.mjs';
 import { createModerationService } from './moderation-service.mjs';
 import { createNotificationService } from './notification-service.mjs';
+import { createReportService } from './report-service.mjs';
 import { createSmsProvider } from './sms-provider.mjs';
 import { createStoryResponseService } from './story-response-service.mjs';
 import { createStoryService } from './story-service.mjs';
@@ -27,6 +28,7 @@ const storyService = createStoryService({ database });
 const storyResponseService = createStoryResponseService({ database });
 const authorControlService = createAuthorControlService({ database });
 const notificationService = createNotificationService({ database });
+const reportService = createReportService({ database });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
@@ -34,6 +36,7 @@ const server = createHttpServer({
   storyResponseService,
   authorControlService,
   notificationService,
+  reportService,
   moderationService,
   config
 });

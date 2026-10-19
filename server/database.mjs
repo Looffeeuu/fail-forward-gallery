@@ -47,7 +47,7 @@ function moderationEventsTableSql(name) {
       actor_account_id TEXT REFERENCES accounts(id),
       action TEXT NOT NULL CHECK (action IN (
         'submitted', 'approved', 'rejected', 'withdrawn',
-        'appealed', 'appeal-upheld', 'appeal-overturned'
+        'appealed', 'appeal-upheld', 'appeal-overturned', 'removed', 'reports-dismissed'
       )),
       reason TEXT,
       created_at TEXT NOT NULL
@@ -100,7 +100,7 @@ function migrateModerationTables(database) {
   // Earlier versions only recorded submissions and first decisions.
   rebuildTableIfOutdated(database, {
     name: 'moderation_events',
-    isCurrent: (sql) => sql.includes("'withdrawn'"),
+    isCurrent: (sql) => sql.includes("'reports-dismissed'"),
     createSql: moderationEventsTableSql,
     columns: ['id', 'moderation_case_id', 'actor_account_id', 'action', 'reason', 'created_at'],
     indexSql: `CREATE INDEX IF NOT EXISTS moderation_events_case_index
@@ -185,9 +185,29 @@ export function createDatabase(databasePath) {
     CREATE INDEX IF NOT EXISTS notifications_recipient_index
       ON notifications(recipient_account_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
+      content_id TEXT NOT NULL,
+      reporter_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      reason_code TEXT NOT NULL CHECK (reason_code IN (
+        'personal-information', 'harassment', 'encourages-harm', 'spam',
+        'outside-boundary', 'safety-concern', 'other'
+      )),
+      details TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'dismissed', 'actioned')),
+      resolved_by_account_id TEXT REFERENCES accounts(id),
+      resolved_at TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (content_type, content_id, reporter_account_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS reports_open_index ON reports(status, content_type, content_id);
+    CREATE INDEX IF NOT EXISTS reports_reporter_index ON reports(reporter_account_id, created_at);
+
     CREATE TABLE IF NOT EXISTS appeals (
       id TEXT PRIMARY KEY,
-      moderation_case_id TEXT NOT NULL UNIQUE REFERENCES moderation_cases(id) ON DELETE CASCADE,
+      moderation_case_id TEXT NOT NULL REFERENCES moderation_cases(id) ON DELETE CASCADE,
       appellant_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       reason_code TEXT NOT NULL CHECK (reason_code IN (
         'context-misunderstood', 'no-identifying-details', 'within-guidelines', 'other'
@@ -324,7 +344,16 @@ export function createDatabase(databasePath) {
     'appeals.reason_code AS appealReasonCode, appeals.explanation AS appealExplanation,',
     'appeals.decision_reason AS appealDecisionReason, appeals.decided_at AS appealDecidedAt'
   ].join(' ');
-  const appealSource = 'LEFT JOIN appeals ON appeals.moderation_case_id = moderation_cases.id';
+  // Each decision can be appealed once. The appeal that belongs to the current
+  // decision is the latest one still pending or decided no earlier than the case;
+  // a later decision (such as removal after a report) makes older appeals history.
+  const currentAppealId = [
+    'SELECT latest.id FROM appeals latest',
+    'WHERE latest.moderation_case_id = moderation_cases.id',
+    'AND (latest.decided_at IS NULL OR latest.decided_at >= moderation_cases.decided_at)',
+    'ORDER BY latest.created_at DESC LIMIT 1'
+  ].join(' ');
+  const appealSource = `LEFT JOIN appeals ON appeals.id = (${currentAppealId})`;
   const storyFields = [
     'stories.id AS id, stories.board AS board, stories.title AS title,',
     'stories.body AS content, stories.response_preference AS responsePreference,',
@@ -388,7 +417,60 @@ export function createDatabase(databasePath) {
     'id, moderation_case_id, appellant_account_id, reason_code, explanation, status, created_at',
     ") VALUES (?, ?, ?, ?, ?, 'pending', ?)"
   ].join(' '));
-  const selectAppealForCase = database.prepare('SELECT id FROM appeals WHERE moderation_case_id = ?');
+  const selectAppealForCase = database.prepare(
+    `SELECT (${currentAppealId}) AS id FROM moderation_cases WHERE moderation_cases.id = ?`
+  );
+  // Whether content is public right now: approved, and for responses, on an approved story.
+  const selectPublicState = {
+    story: database.prepare([
+      'SELECT moderation_status AS status, moderation_status AS storyStatus,',
+      'author_account_id AS authorAccountId FROM stories WHERE id = ?'
+    ].join(' ')),
+    comment: database.prepare([
+      'SELECT comments.moderation_status AS status, stories.moderation_status AS storyStatus,',
+      'comments.author_account_id AS authorAccountId',
+      'FROM comments JOIN stories ON stories.id = comments.story_id WHERE comments.id = ?'
+    ].join(' ')),
+    follow_up: database.prepare([
+      'SELECT follow_ups.moderation_status AS status, stories.moderation_status AS storyStatus,',
+      'follow_ups.author_account_id AS authorAccountId',
+      'FROM follow_ups JOIN stories ON stories.id = follow_ups.story_id WHERE follow_ups.id = ?'
+    ].join(' '))
+  };
+  const insertReport = database.prepare([
+    'INSERT OR IGNORE INTO reports (',
+    'id, content_type, content_id, reporter_account_id, reason_code, details, status, created_at',
+    ") VALUES (?, ?, ?, ?, ?, ?, 'open', ?)"
+  ].join(' '));
+  const countReportsSince = database.prepare([
+    'SELECT COUNT(*) AS count, MIN(created_at) AS oldestCreatedAt FROM reports',
+    'WHERE reporter_account_id = ? AND created_at > ?'
+  ].join(' '));
+  // Safety concerns first, then the longest-waiting content.
+  const selectReportedContent = database.prepare([
+    'SELECT content_type AS contentType, content_id AS contentId,',
+    'MIN(created_at) AS createdAt, COUNT(*) AS reportCount,',
+    "MAX(reason_code = 'safety-concern') AS hasSafetyConcern",
+    "FROM reports WHERE status = 'open' GROUP BY content_type, content_id",
+    'ORDER BY hasSafetyConcern DESC, createdAt ASC'
+  ].join(' '));
+  const selectOpenReports = database.prepare([
+    'SELECT reason_code AS reasonCode, details, created_at AS createdAt FROM reports',
+    "WHERE content_type = ? AND content_id = ? AND status = 'open'",
+    'ORDER BY created_at ASC, id ASC'
+  ].join(' '));
+  const selectOpenReporters = database.prepare([
+    'SELECT DISTINCT reporter_account_id AS accountId FROM reports',
+    "WHERE content_type = ? AND content_id = ? AND status = 'open'"
+  ].join(' '));
+  const resolveOpenReports = database.prepare([
+    'UPDATE reports SET status = ?, resolved_by_account_id = ?, resolved_at = ?',
+    "WHERE content_type = ? AND content_id = ? AND status = 'open'"
+  ].join(' '));
+  const removeApprovedContent = prepareForEachContentType(database, (table) => [
+    `UPDATE ${table} SET moderation_status = 'rejected', updated_at = ?`,
+    "WHERE id = ? AND moderation_status = 'approved'"
+  ].join(' '));
   const insertNotification = database.prepare([
     'INSERT INTO notifications (id, recipient_account_id, kind, content_type, content_id, created_at)',
     'VALUES (?, ?, ?, ?, ?, ?)'
@@ -789,7 +871,7 @@ export function createDatabase(databasePath) {
       return {
         moderationStatus: content.moderationStatus,
         moderationCaseId: moderationCase?.id || null,
-        hasAppeal: Boolean(moderationCase && selectAppealForCase.get(moderationCase.id))
+        hasAppeal: Boolean(moderationCase && selectAppealForCase.get(moderationCase.id)?.id)
       };
     },
 
@@ -804,7 +886,11 @@ export function createDatabase(databasePath) {
       createdAt
     }) {
       const timestamp = createdAt.toISOString();
+      let alreadyAppealed = false;
       withTransaction(() => {
+        // Checked inside the write lock so two concurrent submissions cannot both pass.
+        alreadyAppealed = Boolean(selectAppealForCase.get(moderationCaseId)?.id);
+        if (alreadyAppealed) return;
         insertAppeal.run(
           id, moderationCaseId, appellantAccountId, reasonCode, explanation, timestamp
         );
@@ -812,7 +898,7 @@ export function createDatabase(databasePath) {
           randomUUID(), moderationCaseId, appellantAccountId, 'appealed', reasonCode, timestamp
         );
       });
-      return selectOwnedContent(contentType, contentId, appellantAccountId);
+      return alreadyAppealed ? null : selectOwnedContent(contentType, contentId, appellantAccountId);
     },
 
     // Appeals for content the author has since withdrawn are left out of the queue.
@@ -864,6 +950,91 @@ export function createDatabase(databasePath) {
           overturn ? 'appeal-overturned' : 'appeal-upheld',
           timestamp
         );
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        throw error;
+      }
+      return true;
+    },
+
+    getReportTarget(contentType, contentId) {
+      const state = selectPublicState[contentType].get(contentId);
+      if (!state) return null;
+      return {
+        authorAccountId: state.authorAccountId,
+        isPublic: state.status === 'approved' && state.storyStatus === 'approved'
+      };
+    },
+
+    getRecentReportActivity(accountId, since) {
+      const activity = countReportsSince.get(accountId, since.toISOString());
+      return { count: Number(activity.count), oldestCreatedAt: activity.oldestCreatedAt };
+    },
+
+    // Returns false when this account already reported this content.
+    createReport({ id, contentType, contentId, reporterAccountId, reasonCode, details, createdAt }) {
+      const insert = insertReport.run(
+        id, contentType, contentId, reporterAccountId, reasonCode, details, createdAt.toISOString()
+      );
+      return Number(insert.changes) === 1;
+    },
+
+    // Reports are grouped per content item; reporters' identities stay out of the queue.
+    listReportedContent() {
+      return selectReportedContent.all().flatMap((group) => {
+        const state = selectPublicState[group.contentType].get(group.contentId);
+        if (state?.status !== 'approved' || state.storyStatus !== 'approved') return [];
+        return [{
+          ...group,
+          hasSafetyConcern: Boolean(group.hasSafetyConcern),
+          content: selectContentForModeration(group.contentType, group.contentId),
+          reports: selectOpenReports.all(group.contentType, group.contentId)
+        }];
+      });
+    },
+
+    // Removal unpublishes the content as a rejection the author can appeal.
+    // Returns false when there are no open reports or the content is no longer public.
+    resolveReports({ contentType, contentId, reviewerAccountId, decision, reason, decidedAt }) {
+      const timestamp = decidedAt.toISOString();
+      const moderationCase = selectModerationCaseId.get(contentType, contentId);
+      const reporters = selectOpenReporters.all(contentType, contentId);
+      if (!moderationCase || reporters.length === 0) return false;
+
+      const remove = decision === 'remove';
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        if (remove) {
+          const removal = removeApprovedContent[contentType].run(timestamp, contentId);
+          if (Number(removal.changes) !== 1) {
+            database.exec('ROLLBACK');
+            return false;
+          }
+          updateModerationCaseById.run(
+            'rejected', reason, timestamp, reviewerAccountId, timestamp, moderationCase.id
+          );
+          notifyAuthor(contentType, contentId, 'removed', timestamp);
+        }
+        resolveOpenReports.run(
+          remove ? 'actioned' : 'dismissed', reviewerAccountId, timestamp, contentType, contentId
+        );
+        insertModerationEvent.run(
+          randomUUID(),
+          moderationCase.id,
+          reviewerAccountId,
+          remove ? 'removed' : 'reports-dismissed',
+          reason,
+          timestamp
+        );
+        reporters.forEach(({ accountId }) => insertNotification.run(
+          randomUUID(),
+          accountId,
+          remove ? 'report-actioned' : 'report-dismissed',
+          contentType,
+          contentId,
+          timestamp
+        ));
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');

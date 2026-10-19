@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -438,7 +438,7 @@ paths:
     post:
       summary: Appeal a rejection of the current account's own content
       operationId: appealContent
-      description: Each review decision can be appealed once. Appeals enter the reviewer queue; any reviewer may decide them, including the original reviewer, who is told it was their decision.
+      description: Each review decision (including a removal after a report) can be appealed once. Appeals enter the reviewer queue; any reviewer may decide them, including the original reviewer, who is told it was their decision.
       security:
         - cookieAuth: []
       parameters:
@@ -608,6 +608,157 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
           $ref: '#/components/responses/InvalidCsrf'
+  /api/v1/{contentPath}/{contentId}/reports:
+    post:
+      summary: Report another account's public story, comment, or follow-up
+      operationId: reportContent
+      description: Signed-in accounts only, once per item, at most 10 reports per hour. Reporters are never revealed to authors or reviewers. Own content cannot be reported.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/ContentPath'
+        - $ref: '#/components/parameters/ContentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportSubmission'
+      responses:
+        '201':
+          description: Report recorded for human re-review.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report:
+                    type: object
+                    properties:
+                      contentType:
+                        type: string
+                      contentId:
+                        type: string
+                      reasonCode:
+                        $ref: '#/components/schemas/ReportReasonCode'
+                      status:
+                        const: open
+        '400':
+          description: Invalid reason or details, or the content is the reporter's own (cannot-report-own-content).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '404':
+          $ref: '#/components/responses/ContentNotFound'
+        '409':
+          description: This account already reported this content (already-reported).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: More than 10 reports in an hour (report-rate-limited).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/moderation/reports:
+    get:
+      summary: List public content with open reports
+      operationId: listReportedContent
+      description: One entry per content item, safety concerns first. Reporter identities are not included. Content that is no longer public is omitted.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Private reviewer queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reported]
+                properties:
+                  reported:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportedContent'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+  /api/v1/moderation/reports/{contentPath}/{contentId}/decision:
+    post:
+      summary: Remove reported content or keep it
+      operationId: decideReportedContent
+      description: Removal unpublishes the content as a rejection with the given reason, which the author can appeal. Both outcomes resolve every open report on the item and notify the author (on removal) and each reporter.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/ContentPath'
+        - $ref: '#/components/parameters/ContentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reason]
+              properties:
+                decision:
+                  type: string
+                  enum: [remove, dismiss]
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 500
+      responses:
+        '200':
+          description: Reports resolved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      contentType:
+                        type: string
+                      contentId:
+                        type: string
+                      status:
+                        type: string
+                        enum: [removed, kept]
+        '400':
+          description: The decision or reason is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/ModeratorRequired'
+        '409':
+          description: No open reports remain, or the content is no longer public.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1090,6 +1241,52 @@ components:
         unreadCount:
           type: integer
           minimum: 0
+    ReportReasonCode:
+      type: string
+      enum: [personal-information, harassment, encourages-harm, spam, outside-boundary, safety-concern, other]
+    ReportSubmission:
+      type: object
+      required: [reasonCode]
+      properties:
+        reasonCode:
+          $ref: '#/components/schemas/ReportReasonCode'
+        details:
+          type: string
+          maxLength: 500
+          description: Required (at least 5 characters) when reasonCode is other.
+    ReportedContent:
+      type: object
+      required: [contentType, contentId, createdAt, reportCount, hasSafetyConcern, content, reports]
+      properties:
+        contentType:
+          type: string
+          enum: [story, comment, follow_up]
+        contentId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: When the first open report was filed.
+        reportCount:
+          type: integer
+        hasSafetyConcern:
+          type: boolean
+        content:
+          $ref: '#/components/schemas/OwnedContent'
+        reports:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [reasonCode, details, createdAt]
+            properties:
+              reasonCode:
+                $ref: '#/components/schemas/ReportReasonCode'
+              details:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
     ReviewDecision:
       type: object
       additionalProperties: false

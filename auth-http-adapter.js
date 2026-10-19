@@ -44,7 +44,13 @@
     'appeal-already-submitted',
     'invalid-appeal-reason',
     'invalid-appeal-explanation',
-    'invalid-appeal-id'
+    'invalid-appeal-id',
+    'invalid-report-reason',
+    'invalid-report-details',
+    'cannot-report-own-content',
+    'already-reported',
+    'report-rate-limited',
+    'invalid-content'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -197,6 +203,27 @@
     comment: sanitiseComment,
     follow_up: sanitiseFollowUp
   });
+
+  // Reviewer view of reported content. Reports never carry who filed them.
+  function sanitiseReportedContent(group) {
+    if (!group || typeof group !== 'object') return null;
+    const sanitiseContent = OWNED_CONTENT_SANITISERS[group.contentType];
+    if (!sanitiseContent) return null;
+    return Object.freeze({
+      id: `${group.contentType}:${String(group.contentId || '')}`,
+      contentType: String(group.contentType),
+      contentId: String(group.contentId || ''),
+      createdAt: String(group.createdAt || ''),
+      reportCount: Math.max(0, Number(group.reportCount) || 0),
+      hasSafetyConcern: group.hasSafetyConcern === true,
+      content: sanitiseContent(group.content),
+      reports: Object.freeze((Array.isArray(group.reports) ? group.reports : []).map((report) => Object.freeze({
+        reasonCode: String(report?.reasonCode || ''),
+        details: String(report?.details || ''),
+        createdAt: String(report?.createdAt || '')
+      })))
+    });
+  }
 
   function sanitiseNotification(notification) {
     if (!notification || typeof notification !== 'object') return null;
@@ -431,6 +458,31 @@
           { method: 'POST', body: JSON.stringify(input) }
         );
         return OWNED_CONTENT_SANITISERS[contentType](payload.content);
+      },
+
+      async reportContent(contentType, contentId, input) {
+        const payload = await adapter.requestJson(
+          `/api/v1/${CONTENT_PATHS[contentType]}/${encodeURIComponent(contentId)}/reports`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        return payload.report;
+      },
+
+      async listReportedContent() {
+        const payload = await adapter.requestJson('/api/v1/moderation/reports', { method: 'GET' });
+        return sanitiseList(payload.reported, sanitiseReportedContent);
+      },
+
+      // The queue identifies reported content as "contentType:contentId".
+      async decideReportedContent(queueId, input) {
+        const separator = queueId.indexOf(':');
+        const contentType = queueId.slice(0, separator);
+        const contentId = queueId.slice(separator + 1);
+        const payload = await adapter.requestJson(
+          `/api/v1/moderation/reports/${CONTENT_PATHS[contentType]}/${encodeURIComponent(contentId)}/decision`,
+          { method: 'POST', body: JSON.stringify(input) }
+        );
+        return payload.result;
       },
 
       async listNotifications() {

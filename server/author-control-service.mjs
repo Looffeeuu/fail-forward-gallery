@@ -89,28 +89,24 @@ export function createAuthorControlService({
       }
 
       const { reasonCode, explanation } = normaliseAppealInput(input);
-      try {
-        return database.createAppeal({
-          id: generateId(),
-          contentType,
-          contentId: id,
-          moderationCaseId: state.moderationCaseId,
-          appellantAccountId: accountId,
-          reasonCode,
-          explanation,
-          createdAt: now()
-        });
-      } catch (error) {
-        // A concurrent duplicate submission loses the UNIQUE race on the case.
-        if (String(error?.message).includes('UNIQUE')) {
-          throw new StoryError(
-            'appeal-already-submitted',
-            409,
-            'Each review decision can be appealed once.'
-          );
-        }
-        throw error;
+      const content = database.createAppeal({
+        id: generateId(),
+        contentType,
+        contentId: id,
+        moderationCaseId: state.moderationCaseId,
+        appellantAccountId: accountId,
+        reasonCode,
+        explanation,
+        createdAt: now()
+      });
+      if (!content) {
+        throw new StoryError(
+          'appeal-already-submitted',
+          409,
+          'Each review decision can be appealed once.'
+        );
       }
+      return content;
     }
   });
 }

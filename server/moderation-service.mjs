@@ -1,6 +1,8 @@
 const REVIEWER_ROLES = new Set(['moderator', 'administrator']);
 const DECISIONS = new Set(['approve', 'reject']);
 const APPEAL_DECISIONS = new Set(['overturn', 'uphold']);
+const REPORT_DECISIONS = new Set(['remove', 'dismiss']);
+const CONTENT_TYPES = new Set(['story', 'comment', 'follow_up']);
 
 export class ModerationError extends Error {
   constructor(code, status, message) {
@@ -116,6 +118,40 @@ export function createModerationService({ database, now = () => new Date() }) {
       }
       const { originalDeciderAccountId, moderationCaseId, ...appeal } = database.findAppeal(id);
       return Object.freeze(appeal);
+    },
+
+    listReportedContent(session) {
+      requireReviewer(session);
+      return database.listReportedContent();
+    },
+
+    decideReports({ session, contentType, contentId, input }) {
+      requireReviewer(session);
+      if (!CONTENT_TYPES.has(contentType)) {
+        throw new ModerationError('invalid-content', 400, 'Choose valid reported content.');
+      }
+      const { id, decision, reason } = normaliseDecisionInput(
+        contentId,
+        input,
+        { code: 'invalid-content', message: 'Choose valid reported content.' },
+        REPORT_DECISIONS
+      );
+      const resolved = database.resolveReports({
+        contentType,
+        contentId: id,
+        reviewerAccountId: session.accountId,
+        decision,
+        reason,
+        decidedAt: now()
+      });
+      if (!resolved) {
+        throw new ModerationError(
+          'review-conflict',
+          409,
+          'These reports were already handled, or the content is no longer public.'
+        );
+      }
+      return Object.freeze({ contentType, contentId: id, status: decision === 'remove' ? 'removed' : 'kept' });
     },
 
     decideStory({ session, storyId, input }) {
