@@ -102,6 +102,12 @@ const policyState = {
   policies: null
 };
 
+const accountDataState = {
+  deleting: false,
+  busy: false,
+  message: ''
+};
+
 const teamState = {
   data: null,
   loading: false,
@@ -538,6 +544,21 @@ function initNavigation() {
   document.addEventListener('click', (event) => {
     const consentButton = event.target.closest('[data-consent-action]');
     if (consentButton) acceptPolicyFromPage(consentButton.dataset.consentAction);
+  });
+
+  const accountData = document.getElementById('account-data');
+  accountData?.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-account-action]')?.dataset.accountAction;
+    if (!action) return;
+    accountDataState.deleting = action === 'start-delete';
+    accountDataState.message = '';
+    renderAccountData();
+    accountData.querySelector('input, button')?.focus();
+  });
+  accountData?.addEventListener('submit', (event) => {
+    if (!event.target.closest('[data-delete-account-form]')) return;
+    event.preventDefault();
+    deleteAccountFromPage(event.target);
   });
 
   document.addEventListener('click', (event) => {
@@ -3593,6 +3614,105 @@ function syncConsentUI(authState = window.FFG_AUTH?.getSnapshot()) {
   }
 }
 
+// Download a copy of your data, or delete the account. Deletion asks how to
+// treat public content and needs an explicit acknowledgement before it runs.
+function renderAccountData(authState = window.FFG_AUTH?.getSnapshot()) {
+  const section = document.getElementById('account-data');
+  if (!section) return;
+  const signedIn = authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
+  const serverMode = Boolean(window.FFG_CONTENT_API?.enabled);
+  const useChinese = tagUiState.language === 'zh';
+  const message = accountDataState.message
+    ? `<p class="team-status" id="account-data-status" role="status" tabindex="-1">${escapeHtml(accountDataState.message)}</p>`
+    : '';
+
+  section.hidden = !serverMode || (!signedIn && !accountDataState.message);
+  if (section.hidden) return;
+  if (!signedIn) {
+    section.innerHTML = message;
+    return;
+  }
+
+  const isStaff = authState.account?.role !== 'member';
+  const deletePanel = !accountDataState.deleting ? `
+    <button type="button" class="btn btn-ghost" data-account-action="start-delete">${useChinese ? '删除账户…' : 'Delete account…'}</button>
+  ` : isStaff ? `
+    <div class="report-panel">
+      <p>${useChinese
+        ? '你是审核团队成员。请先请一位管理员在“团队管理”中撤销你的角色，然后再删除账户。'
+        : 'You are on the review team. Ask an administrator to remove you on the Team page first, then delete your account.'}</p>
+      <button type="button" class="btn btn-ghost btn-sm" data-account-action="cancel">${useChinese ? '返回' : 'Back'}</button>
+    </div>
+  ` : `
+    <form class="report-panel delete-account-panel" data-delete-account-form novalidate>
+      <p><strong>${useChinese ? '删除后无法恢复。' : 'This cannot be undone.'}</strong>
+        ${useChinese
+          ? '你会在所有设备上退出登录；待审核、未通过、安全保留和仅自己可见的内容都会被删除；你提交的申诉和举报说明也会删除。审核决定与理由会保留，但不再关联到任何账户。'
+          : 'You will be signed out everywhere. Pending, rejected, held, and private content is deleted, as are your appeal and report explanations. Review decisions and reasons are kept with no link to any account.'}</p>
+      <fieldset>
+        <legend>${useChinese ? '已经公开的故事、回应和后续怎么处理？' : 'What should happen to your public stories, responses, and follow-ups?'}</legend>
+        <label class="consent-check"><input type="radio" name="public-content" value="delete" required>
+          <span>${useChinese ? '全部删除。别人对你故事的回应也会随故事一起删除。' : 'Delete them all. Replies to your stories are deleted with them.'}</span></label>
+        <label class="consent-check"><input type="radio" name="public-content" value="keep">
+          <span>${useChinese ? '保留为匿名内容。它们会继续展示，但不再属于任何账户，以后也无法撤回。' : 'Keep them as anonymous content. They stay online but belong to no account and can no longer be withdrawn.'}</span></label>
+      </fieldset>
+      <label class="consent-check"><input type="checkbox" name="understand" required>
+        <span>${useChinese ? '我明白删除后无法恢复' : 'I understand this cannot be undone'}</span></label>
+      <div class="owner-control-actions">
+        <button type="submit" class="btn btn-reject btn-sm" ${accountDataState.busy ? 'disabled' : ''}>${useChinese ? '永久删除账户' : 'Delete my account permanently'}</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-account-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>
+      </div>
+      <p class="report-error" id="delete-account-error" role="status" aria-live="polite"></p>
+    </form>
+  `;
+
+  section.innerHTML = `
+    <div>
+      <span class="account-eyebrow">${useChinese ? '仅你可见' : 'Only visible to you'}</span>
+      <h2 id="account-data-title">${useChinese ? '你的数据' : 'Your data'}</h2>
+    </div>
+    <p>${useChinese
+      ? '下载一份我们保存的、与你有关的全部信息：你的内容、审核状态、同意记录、举报和通知。我们不保存你的手机号，所以文件里也没有。'
+      : 'Download everything held about you: your content, review status, agreements, reports, and notices. Your mobile number is not stored, so it is not included.'}</p>
+    <a class="btn btn-secondary" href="${escapeHtml(window.FFG_CONTENT_API.exportUrl())}" download>${useChinese ? '下载我的数据（JSON）' : 'Download my data (JSON)'}</a>
+    ${deletePanel}
+    ${message}
+  `;
+}
+
+async function deleteAccountFromPage(form) {
+  const useChinese = tagUiState.language === 'zh';
+  const choice = form.querySelector('[name="public-content"]:checked')?.value;
+  const error = form.querySelector('#delete-account-error');
+  if (!choice || !form.querySelector('[name="understand"]').checked) {
+    error.textContent = useChinese
+      ? '请选择公开内容的处理方式，并勾选“我明白删除后无法恢复”。'
+      : 'Choose what happens to public content and tick the acknowledgement.';
+    return;
+  }
+
+  accountDataState.busy = true;
+  form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  try {
+    const result = await window.FFG_CONTENT_API.deleteAccount({ keepPublicContent: choice === 'keep' });
+    accountDataState.deleting = false;
+    accountDataState.message = useChinese
+      ? `你的账户已删除：删除了 ${result.deleted} 项内容${result.kept ? `，保留了 ${result.kept} 项匿名公开内容` : ''}。`
+      : `Your account was deleted: ${result.deleted} items removed${result.kept ? `, ${result.kept} public items kept anonymously` : ''}.`;
+    await window.FFG_AUTH.restoreSession().catch(() => {});
+    loadPublishedStories();
+  } catch (requestError) {
+    error.textContent = requestError.code === 'staff-cannot-delete'
+      ? (useChinese ? '团队成员需要先由管理员撤销角色。' : 'Team members must be removed by an administrator first.')
+      : (useChinese ? '暂时无法删除账户，请稍后重试。什么都没有被删除。' : 'Your account could not be deleted. Nothing was removed; please try again.');
+    form.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+  } finally {
+    accountDataState.busy = false;
+  }
+  renderAccountData();
+  document.getElementById('account-data-status')?.focus();
+}
+
 async function acceptPolicyFromPage(policy) {
   const version = policyState.policies?.[policy]?.version;
   const status = document.getElementById(policy === 'community' ? 'community-gate-status' : 'privacy-update-status');
@@ -3617,6 +3737,7 @@ async function acceptPolicyFromPage(policy) {
 
 function syncSubmissionModeUI(authState = window.FFG_AUTH?.getSnapshot()) {
   syncConsentUI(authState);
+  renderAccountData(authState);
   const submitButton = document.getElementById('submit-story-button');
   const tagHelp = document.getElementById('story-tags-help');
   const archiveModeLabel = document.getElementById('archive-mode-label');

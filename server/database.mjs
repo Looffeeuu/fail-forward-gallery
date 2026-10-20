@@ -19,6 +19,10 @@ function prepareForEachContentType(database, buildSql) {
   );
 }
 
+// Content kept after its author deletes their account belongs to this account,
+// which can never sign in: its fingerprint is not a phone hash and it is suspended.
+export const DELETED_ACCOUNT_ID = 'deleted-account';
+
 // What each human decision does. `from` is the status the content must still
 // have, so a stale or repeated decision changes nothing.
 const DECISION_OUTCOMES = Object.freeze({
@@ -473,6 +477,53 @@ export function createDatabase(databasePath) {
   const selectConsent = database.prepare(
     'SELECT 1 FROM policy_consents WHERE account_id = ? AND policy = ? AND version = ?'
   );
+  const insertDeletedAccountPlaceholder = database.prepare([
+    'INSERT OR IGNORE INTO accounts (id, phone_fingerprint, role, status, created_at, updated_at)',
+    "VALUES (?, ?, 'member', 'suspended', ?, ?)"
+  ].join(' '));
+  const selectOwnedIds = prepareForEachContentType(database, (table) => (
+    `SELECT id, moderation_status AS moderationStatus FROM ${table} WHERE author_account_id = ?`
+  ));
+  const deleteContentById = prepareForEachContentType(database, (table) => (
+    `DELETE FROM ${table} WHERE id = ?`
+  ));
+  const reassignContentAuthor = prepareForEachContentType(database, (table) => (
+    `UPDATE ${table} SET author_account_id = ? WHERE id = ?`
+  ));
+  // Every other reference to an account: cleared where optional, handed to the
+  // placeholder where required, so audit rows survive without naming anyone.
+  const accountReferenceUpdates = [
+    'UPDATE moderation_events SET actor_account_id = NULL WHERE actor_account_id = ?',
+    'UPDATE moderation_cases SET decided_by_account_id = NULL WHERE decided_by_account_id = ?',
+    'UPDATE appeals SET decided_by_account_id = NULL WHERE decided_by_account_id = ?',
+    'UPDATE reports SET resolved_by_account_id = NULL WHERE resolved_by_account_id = ?',
+    'UPDATE story_recommendations SET removed_by_account_id = NULL WHERE removed_by_account_id = ?'
+  ].map((sql) => database.prepare(sql));
+  const accountReferenceReassignments = [
+    'UPDATE story_recommendations SET recommended_by_account_id = ? WHERE recommended_by_account_id = ?',
+    'UPDATE role_changes SET account_id = ? WHERE account_id = ?',
+    'UPDATE role_changes SET changed_by_account_id = ? WHERE changed_by_account_id = ?'
+  ].map((sql) => database.prepare(sql));
+  // Reports and notices about content that no longer exists are meaningless.
+  const missingContent = [
+    "(content_type = 'story' AND content_id NOT IN (SELECT id FROM stories))",
+    "(content_type = 'comment' AND content_id NOT IN (SELECT id FROM comments))",
+    "(content_type = 'follow_up' AND content_id NOT IN (SELECT id FROM follow_ups))"
+  ].join(' OR ');
+  const deleteReportsForMissingContent = database.prepare(`DELETE FROM reports WHERE ${missingContent}`);
+  const deleteNotificationsForMissingContent = database.prepare(
+    `DELETE FROM notifications WHERE ${missingContent}`
+  );
+  const deleteAccountRow = database.prepare('DELETE FROM accounts WHERE id = ?');
+  const selectConsentsByAccount = database.prepare([
+    'SELECT policy, version, accepted_at AS acceptedAt FROM policy_consents',
+    'WHERE account_id = ? ORDER BY accepted_at ASC'
+  ].join(' '));
+  const selectReportsByReporter = database.prepare([
+    'SELECT content_type AS contentType, content_id AS contentId, reason_code AS reasonCode,',
+    'details, status, created_at AS createdAt FROM reports',
+    'WHERE reporter_account_id = ? ORDER BY created_at ASC'
+  ].join(' '));
   const selectAccountById = database.prepare(
     'SELECT id, role, status, created_at AS createdAt FROM accounts WHERE id = ?'
   );
@@ -1110,6 +1161,48 @@ export function createDatabase(databasePath) {
     // Reviewer tools use this only to keep people from reviewing their own work.
     findContentAuthor(contentType, contentId) {
       return selectContentStatus[contentType]?.get(contentId)?.authorAccountId || null;
+    },
+
+    // What a person gets when they download their data. No phone number is
+    // stored, so none can be included.
+    exportAccountRecords(accountId) {
+      return {
+        consents: selectConsentsByAccount.all(accountId),
+        reportsFiled: selectReportsByReporter.all(accountId),
+        notifications: selectNotifications.all(accountId, 1000)
+      };
+    },
+
+    // Deletes an account in one transaction. Content that is public right now
+    // may be kept, unowned, when the person asks; everything else they wrote is
+    // deleted. Moderation cases and events stay, with no link to the account.
+    deleteAccount({ accountId, keepPublicContent, deletedAt }) {
+      const timestamp = deletedAt.toISOString();
+      const summary = { deleted: 0, kept: 0 };
+      withTransaction(() => {
+        insertDeletedAccountPlaceholder.run(DELETED_ACCOUNT_ID, DELETED_ACCOUNT_ID, timestamp, timestamp);
+        // Everything is listed before anything is removed, because deleting a
+        // story also deletes the responses attached to it. Stories go first.
+        const owned = ['story', 'comment', 'follow_up'].flatMap((contentType) => (
+          selectOwnedIds[contentType].all(accountId).map((item) => ({ contentType, ...item }))
+        ));
+        owned.forEach(({ contentType, id, moderationStatus }) => {
+          const keep = keepPublicContent && moderationStatus === 'approved'
+            && Number(reassignContentAuthor[contentType].run(DELETED_ACCOUNT_ID, id).changes) === 1;
+          if (keep) {
+            summary.kept += 1;
+          } else {
+            deleteContentById[contentType].run(id);
+            summary.deleted += 1;
+          }
+        });
+        accountReferenceUpdates.forEach((statement) => statement.run(accountId));
+        accountReferenceReassignments.forEach((statement) => statement.run(DELETED_ACCOUNT_ID, accountId));
+        deleteReportsForMissingContent.run();
+        deleteNotificationsForMissingContent.run();
+        deleteAccountRow.run(accountId);
+      });
+      return summary;
     },
 
     findAccount(accountId) {

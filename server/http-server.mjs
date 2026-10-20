@@ -224,6 +224,7 @@ export function createHttpServer({
   rankingService,
   staffService,
   consentService,
+  accountService,
   moderationService,
   config,
   logger = console
@@ -239,6 +240,7 @@ export function createHttpServer({
     || !rankingService
     || !staffService
     || !consentService
+    || !accountService
     || !moderationService
     || !config
   ) {
@@ -586,6 +588,33 @@ export function createHttpServer({
             input: body
           })
         });
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/me/export') {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const data = accountService.exportData(session);
+        sendJson(response, 200, data, {
+          'Content-Disposition': 'attachment; filename="fail-forward-gallery-my-data.json"'
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/v1/me/delete-account') {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        const summary = accountService.deleteAccount({
+          session,
+          keepPublicContent: body.keepPublicContent,
+          confirmation: body.confirmation
+        });
+        const csrfToken = createCsrfToken();
+        response.setHeader('Set-Cookie', [
+          clearCookie(SESSION_COOKIE, config.isProduction),
+          cookie(CSRF_COOKIE, csrfToken, { maxAge: 2 * 60 * 60, secure: config.isProduction })
+        ]);
+        sendJson(response, 200, { deleted: true, ...summary, csrfToken });
         return;
       }
 

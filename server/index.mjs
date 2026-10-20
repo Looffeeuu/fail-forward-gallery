@@ -1,3 +1,4 @@
+import { createAccountService } from './account-service.mjs';
 import { createAuthService } from './auth-service.mjs';
 import { createAuthorControlService } from './author-control-service.mjs';
 import { createConsentService } from './consent-service.mjs';
@@ -40,6 +41,7 @@ const viewService = createViewService({ database, secret: config.authSecret });
 const rankingService = createRankingService({ database, storyService });
 const staffService = createStaffService({ database, secret: config.authSecret });
 const consentService = createConsentService({ database, policyVersions });
+const accountService = createAccountService({ database, storyService, storyResponseService });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
@@ -52,6 +54,7 @@ const server = createHttpServer({
   rankingService,
   staffService,
   consentService,
+  accountService,
   moderationService,
   config
 });

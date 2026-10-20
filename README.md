@@ -133,6 +133,7 @@ The project is in active implementation. The public site serves the static brows
 - Safety holds and keyword danger signals: possible self-harm or harm to others goes to the top of the review queue, the writer is offered care at once, and reviewers can keep content private for care without treating it as a violation.
 - Team management: administrators appoint and remove reviewers by mobile number (hashed, never stored), with a logged history; the first administrator is set with `npm run staff -- grant-admin`.
 - Versioned privacy notice and community rules (`policies.json`): agreement is required and recorded before sign-in and before a first story, and asked again when a version changes.
+- Self-service data export and account deletion, with the choice to delete or anonymously keep public content.
 - In-site review notifications with an unread badge.
 - Story rankings refreshed every minute, with de-duplicated, privacy-preserving view counting.
 - Role-protected human-review queue for stories, comments, follow-ups, appeals, and reports, with reasons and immutable audit events.

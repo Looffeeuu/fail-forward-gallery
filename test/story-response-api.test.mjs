@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { createAccountService } from '../server/account-service.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
 import { createConsentService } from '../server/consent-service.mjs';
 import { createAuthorControlService } from '../server/author-control-service.mjs';
@@ -50,6 +51,7 @@ function createClient(baseUrl) {
   }
 
   return {
+    jar,
     send,
     async signIn(phone) {
       await send('/api/v1/auth/session');
@@ -83,6 +85,11 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     staffService: createStaffService({ database, secret: 'test-staff-secret' }),
     consentService: createConsentService({ database, policyVersions: { privacy: 'test', community: 'test' } }),
+    accountService: createAccountService({
+      database,
+      storyService: createStoryService({ database }),
+      storyResponseService: createStoryResponseService({ database })
+    }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -299,4 +306,19 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   assert.equal(withdraw.payload.content.moderationStatus, 'withdrawn');
   const afterWithdraw = await visitor.send('/api/v1/stories');
   assert.equal(afterWithdraw.payload.stories.length, 0);
+
+  // A person can download their data and delete their account.
+  const exported = await fetch(`${baseUrl}/api/v1/me/export`, {
+    headers: { Cookie: [...reader.jar].map(([name, value]) => `${name}=${value}`).join('; ') }
+  });
+  assert.match(exported.headers.get('content-disposition'), /attachment/);
+  assert.ok((await exported.json()).comments.length > 0);
+  assert.equal((await visitor.send('/api/v1/me/export')).status, 401);
+  const deletion = await reader.send('/api/v1/me/delete-account', {
+    method: 'POST',
+    body: { confirmation: 'delete-my-account', keepPublicContent: false }
+  });
+  assert.equal(deletion.status, 200);
+  assert.equal(deletion.payload.deleted >= 1, true);
+  assert.equal((await reader.send('/api/v1/me/comments')).status, 401, 'the session ends with the account');
 });

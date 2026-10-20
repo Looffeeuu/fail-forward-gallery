@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { createAccountService } from '../server/account-service.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
 import { createAuthorControlService } from '../server/author-control-service.mjs';
 import { createConsentService } from '../server/consent-service.mjs';
@@ -47,6 +48,11 @@ test('malformed requests are rejected without stopping the server', async (t) =>
     rankingService: createRankingService({ database, storyService }),
     staffService: createStaffService({ database, secret: 'robustness-staff-secret' }),
     consentService: createConsentService({ database, policyVersions: { privacy: 't', community: 't' } }),
+    accountService: createAccountService({
+      database,
+      storyService: createStoryService({ database }),
+      storyResponseService: createStoryResponseService({ database })
+    }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

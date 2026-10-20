@@ -2361,6 +2361,11 @@ body.modal-open { overflow: hidden; }
   background: #f3f8f5;
 }
 .footer-links a { color: inherit; text-decoration: underline; }
+.account-data { display: grid; gap: 0.75rem; justify-items: start; margin-top: 1.5rem; }
+.account-data > p { color: var(--color-text-muted); }
+.delete-account-panel { border-color: #b58c84; }
+.delete-account-panel fieldset { display: grid; gap: 0.25rem; margin: 0; padding: 0; border: none; }
+.delete-account-panel legend { margin-bottom: 0.4rem; font-weight: 700; }
 .owner-controls {
   display: grid;
   gap: 0.6rem;

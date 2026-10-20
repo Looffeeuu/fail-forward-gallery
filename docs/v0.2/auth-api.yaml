@@ -1153,6 +1153,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/me/export:
+    get:
+      summary: Download everything held about the current account
+      operationId: exportMyData
+      description: Returned as a file attachment. Includes agreements, stories (with follow-ups and private reading figures), comments, appeals, reports filed, and notices. No phone number is stored, so none is included, and no internal account id is included.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: The export, with Content-Disposition attachment.
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+  /api/v1/me/delete-account:
+    post:
+      summary: Delete the current account
+      operationId: deleteAccount
+      description: Runs in one transaction and ends the session. With keepPublicContent, content that is public right now stays online owned by a placeholder account that can never sign in; otherwise it is deleted, with replies to deleted stories. Non-public content, appeals, and reports filed are always deleted. Moderation cases and events are kept with no link to the account. Staff must be removed from the team first.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation:
+                  const: delete-my-account
+                keepPublicContent:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, kept]
+                properties:
+                  deleted:
+                    type: integer
+                    description: The person's items removed.
+                  kept:
+                    type: integer
+                    description: Public items kept anonymously.
+        '400':
+          description: Missing confirmation (deletion-not-confirmed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '409':
+          description: Review team members must be removed by an administrator first (staff-cannot-delete).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review

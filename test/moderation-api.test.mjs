@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { createAccountService } from '../server/account-service.mjs';
 import { createAuthService } from '../server/auth-service.mjs';
 import { createConsentService } from '../server/consent-service.mjs';
 import { createAuthorControlService } from '../server/author-control-service.mjs';
@@ -112,6 +113,11 @@ test('moderation API enforces reviewer access and publishes only approved storie
     rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     staffService: createStaffService({ database, secret: 'test-staff-secret' }),
     consentService: createConsentService({ database, policyVersions: { privacy: 'test', community: 'test' } }),
+    accountService: createAccountService({
+      database,
+      storyService: createStoryService({ database }),
+      storyResponseService: createStoryResponseService({ database })
+    }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

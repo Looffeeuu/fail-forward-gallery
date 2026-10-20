@@ -65,7 +65,9 @@
     'too-many-pending-stories',
     'follow-up-rate-limited',
     'too-many-pending-follow-ups',
-    'own-content'
+    'own-content',
+    'staff-cannot-delete',
+    'deletion-not-confirmed'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -427,6 +429,11 @@
 
       async requestJson(path, init) {
         return request(path, init);
+      },
+
+      // For plain links such as file downloads, which go through the browser.
+      urlFor(path) {
+        return `${baseUrl}${path}`;
       }
     });
   }
@@ -648,6 +655,17 @@
           body: JSON.stringify({ policy, version })
         });
         return sanitiseConsents(payload.consents);
+      },
+
+      exportUrl() {
+        return adapter.urlFor('/api/v1/me/export');
+      },
+
+      async deleteAccount({ keepPublicContent }) {
+        return adapter.requestJson('/api/v1/me/delete-account', {
+          method: 'POST',
+          body: JSON.stringify({ confirmation: 'delete-my-account', keepPublicContent })
+        });
       },
 
       async listNotifications() {

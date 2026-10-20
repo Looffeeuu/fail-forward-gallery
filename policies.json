@@ -79,8 +79,8 @@
             "en": "You can withdraw your own content at any time; it leaves public pages immediately. Review records are kept so decisions stay accountable. [To be completed by the team: how long they are kept.]"
           },
           {
-            "zh": "删除账户和导出个人数据的功能尚未上线。【待团队补充：在此之前处理这类请求的联系方式。】",
-            "en": "Account deletion and data export are not available yet. [To be completed by the team: how to request them in the meantime.]"
+            "zh": "你可以在“我的账户”中下载一份与你有关的全部数据，也可以删除账户。删除时你可以选择已公开的内容是全部删除，还是保留为不属于任何账户的匿名内容；其余内容、你的申诉和举报说明都会删除。审核决定与理由会保留，但不再关联到任何账户。审核团队成员需先由管理员撤销角色，才能删除账户。",
+            "en": "In My account you can download everything held about you, and delete your account. When deleting, you choose whether your public content is deleted or kept as anonymous content that belongs to no account; everything else, including your appeal and report explanations, is deleted. Review decisions and reasons are kept with no link to any account. Review team members must be removed from the team by an administrator before deleting."
           }
         ]
       },
