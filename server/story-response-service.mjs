@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { detectRiskSignals } from './risk-signals.mjs';
 import { StoryError } from './story-service.mjs';
+import { enforceSubmissionLimits, SUBMISSION_LIMITS } from './submission-limits.mjs';
 
 const FOLLOW_UP_STATUSES = new Set([
   'still-difficult',
@@ -13,11 +14,7 @@ const FOLLOW_UP_VISIBILITIES = new Set(['anonymous-public', 'private']);
 const COMMENT_MAX_LENGTH = 1000;
 const FOLLOW_UP_MAX_LENGTH = 2000;
 const FOLLOW_UP_SUPPORT_MAX_LENGTH = 1200;
-export const DEFAULT_COMMENT_LIMITS = Object.freeze({
-  windowMs: 10 * 60 * 1000,
-  maxPerWindow: 5,
-  maxPending: 10
-});
+export const DEFAULT_COMMENT_LIMITS = SUBMISSION_LIMITS.comment;
 
 function requireAccount(accountId, message) {
   if (!accountId) throw new StoryError('authentication-required', 401, message);
@@ -79,33 +76,20 @@ export function createStoryResponseService({
   database,
   now = () => new Date(),
   generateId = randomUUID,
-  commentLimits = DEFAULT_COMMENT_LIMITS
+  commentLimits = DEFAULT_COMMENT_LIMITS,
+  followUpLimits = SUBMISSION_LIMITS.follow_up
 }) {
   if (!database) throw new TypeError('Story response service database is required.');
+  // Callers may override only the numbers; codes and messages keep their defaults.
+  const effectiveCommentLimits = { ...SUBMISSION_LIMITS.comment, ...commentLimits };
+  const effectiveFollowUpLimits = { ...SUBMISSION_LIMITS.follow_up, ...followUpLimits };
 
   // Comments are the only content strangers can send to an author, so they
   // carry flood, backlog, and duplicate limits before reaching reviewers.
   function enforceCommentLimits({ accountId, storyId, content, timestamp }) {
-    const activity = database.getRecentCommentActivity(
-      accountId,
-      new Date(timestamp.getTime() - commentLimits.windowMs)
-    );
-    if (activity.count >= commentLimits.maxPerWindow) {
-      const windowEndsAt = new Date(activity.oldestCreatedAt).getTime() + commentLimits.windowMs;
-      throw new StoryError(
-        'comment-rate-limited',
-        429,
-        'You have sent several responses recently. Please wait before sending another.',
-        Math.max(1, Math.ceil((windowEndsAt - timestamp.getTime()) / 1000))
-      );
-    }
-    if (database.countPendingComments(accountId) >= commentLimits.maxPending) {
-      throw new StoryError(
-        'too-many-pending-comments',
-        429,
-        'Several of your responses are still awaiting review. Please wait for decisions first.'
-      );
-    }
+    enforceSubmissionLimits({
+      database, contentType: 'comment', accountId, timestamp, limits: effectiveCommentLimits
+    });
     if (database.hasDuplicateComment({ accountId, storyId, content })) {
       throw new StoryError(
         'duplicate-comment',
@@ -159,6 +143,14 @@ export function createStoryResponseService({
       }
 
       const followUp = normaliseFollowUpInput(input);
+      const createdAt = now();
+      enforceSubmissionLimits({
+        database,
+        contentType: 'follow_up',
+        accountId,
+        timestamp: createdAt,
+        limits: effectiveFollowUpLimits
+      });
       const riskSignals = detectRiskSignals(followUp.content, followUp.support);
       const created = database.createFollowUp({
         id: generateId(),
@@ -166,7 +158,7 @@ export function createStoryResponseService({
         authorAccountId: accountId,
         ...followUp,
         riskSignals,
-        createdAt: now()
+        createdAt
       });
       // Private updates never reach reviewers, but the writer is still offered care.
       return riskSignals.length && !created.careSuggested

@@ -859,12 +859,13 @@ export function createDatabase(databasePath) {
   const selectCommentForModeration = database.prepare(
     `SELECT ${commentFields} ${commentSource} WHERE comments.id = ?`
   );
-  const selectRecentCommentActivity = database.prepare([
-    'SELECT COUNT(*) AS count, MIN(created_at) AS oldestCreatedAt FROM comments',
+  // Withdrawn and rejected rows still count, so deleting cannot reset a limit.
+  const selectRecentActivity = prepareForEachContentType(database, (table) => [
+    `SELECT COUNT(*) AS count, MIN(created_at) AS oldestCreatedAt FROM ${table}`,
     'WHERE author_account_id = ? AND created_at > ?'
   ].join(' '));
-  const countPendingComments = database.prepare([
-    'SELECT COUNT(*) AS count FROM comments',
+  const countPendingContent = prepareForEachContentType(database, (table) => [
+    `SELECT COUNT(*) AS count FROM ${table}`,
     "WHERE author_account_id = ? AND moderation_status = 'pending-human-review'"
   ].join(' '));
   const selectDuplicateComment = database.prepare([
@@ -1431,14 +1432,13 @@ export function createDatabase(databasePath) {
       return selectOwnedContent('comment', id, authorAccountId);
     },
 
-    // Withdrawn and rejected comments still count, so deleting cannot reset the limit.
-    getRecentCommentActivity(accountId, since) {
-      const activity = selectRecentCommentActivity.get(accountId, since.toISOString());
+    getRecentActivity(contentType, accountId, since) {
+      const activity = selectRecentActivity[contentType].get(accountId, since.toISOString());
       return { count: Number(activity.count), oldestCreatedAt: activity.oldestCreatedAt };
     },
 
-    countPendingComments(accountId) {
-      return Number(countPendingComments.get(accountId).count);
+    countPending(contentType, accountId) {
+      return Number(countPendingContent[contentType].get(accountId).count);
     },
 
     hasDuplicateComment({ accountId, storyId, content }) {

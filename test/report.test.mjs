@@ -22,7 +22,8 @@ function createFixture(t, reportLimits) {
   const moderator = database.findOrCreateAccount('moderator-phone', new Date(), 'moderator');
   const session = { accountId: moderator.id, role: 'moderator', status: 'active' };
   const services = {
-    stories: createStoryService({ database, now, generateId }),
+    // Fixtures publish several stories at once; story limits have their own tests.
+    stories: createStoryService({ database, now, generateId, storyLimits: { maxPerWindow: 100, maxPending: 100 } }),
     responses: createStoryResponseService({ database, now, generateId }),
     control: createAuthorControlService({ database, now, generateId }),
     moderation: createModerationService({ database, now }),

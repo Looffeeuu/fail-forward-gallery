@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { detectRiskSignals } from './risk-signals.mjs';
+import { enforceSubmissionLimits, SUBMISSION_LIMITS } from './submission-limits.mjs';
 
 const ALLOWED_BOARDS = new Set(['academic', 'job', 'social']);
 const ALLOWED_RESPONSE_PREFERENCES = new Set(['none', 'encouragement', 'similar', 'advice']);
@@ -100,7 +101,8 @@ export function createStoryService({
   now = () => new Date(),
   generateId = randomUUID,
   // When set, writing a story requires agreeing to this community rules version.
-  policyVersions = null
+  policyVersions = null,
+  storyLimits = null
 }) {
   if (!database) throw new TypeError('Story service database is required.');
 
@@ -118,12 +120,20 @@ export function createStoryService({
         );
       }
       const story = normaliseStoryInput(input);
+      const createdAt = now();
+      enforceSubmissionLimits({
+        database,
+        contentType: 'story',
+        accountId,
+        timestamp: createdAt,
+        limits: { ...SUBMISSION_LIMITS.story, ...storyLimits }
+      });
       return database.createStory({
         id: generateId(),
         authorAccountId: accountId,
         ...story,
         riskSignals: detectRiskSignals(story.title, story.content),
-        createdAt: now()
+        createdAt
       });
     },
 

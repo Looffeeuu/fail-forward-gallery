@@ -215,6 +215,16 @@ paths:
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
           $ref: '#/components/responses/InvalidCsrf'
+        '429':
+          description: More than 3 stories in an hour (story-rate-limited, with Retry-After) or 3 awaiting review (too-many-pending-stories).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/me/stories:
     get:
       summary: List stories owned by the current private account
@@ -341,6 +351,16 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/StoryNotFound'
+        '429':
+          description: More than 3 follow-ups in an hour, private ones included (follow-up-rate-limited, with Retry-After), or 3 awaiting review (too-many-pending-follow-ups).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/me/comments:
     get:
       summary: List comments written by the current private account

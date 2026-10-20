@@ -60,7 +60,11 @@
     'privacy-consent-required',
     'community-consent-required',
     'policy-version-outdated',
-    'invalid-policy'
+    'invalid-policy',
+    'story-rate-limited',
+    'too-many-pending-stories',
+    'follow-up-rate-limited',
+    'too-many-pending-follow-ups'
   ]);
 
   const CONTENT_PATHS = Object.freeze({

@@ -1502,6 +1502,14 @@ function getResponseErrorMessage(errorCode) {
       zh: '请用10–1000个字符说明申诉理由。',
       en: 'Explain the appeal in 10–1,000 characters.'
     },
+    'follow-up-rate-limited': {
+      zh: '你最近添加的后续较多，请过一会儿再试。',
+      en: 'You have added several follow-ups recently. Please try again later.'
+    },
+    'too-many-pending-follow-ups': {
+      zh: '你还有几条后续在等待审核，请等审核结果出来后再添加。',
+      en: 'Several of your follow-ups are still awaiting review. Please wait for decisions first.'
+    },
     'comment-rate-limited': {
       zh: '你最近发送的回应较多，请过几分钟再试。',
       en: 'You have sent several responses recently. Please try again in a few minutes.'
@@ -3719,6 +3727,14 @@ function setSubmissionBusy(isBusy) {
 function getSubmissionErrorMessage(error) {
   const useChinese = tagUiState.language === 'zh';
   const messages = {
+    'story-rate-limited': {
+      zh: '你最近投稿较多，请过一会儿再提交。你已经填写的内容不会被清空。',
+      en: 'You have submitted several stories recently. Please try again later; your draft will stay on this page.'
+    },
+    'too-many-pending-stories': {
+      zh: '你还有几篇故事在等待审核，请等审核结果出来后再提交。你已经填写的内容不会被清空。',
+      en: 'Several of your stories are still awaiting review. Please wait for decisions; your draft will stay on this page.'
+    },
     'community-consent-required': {
       zh: '社区规则已更新，请先阅读并确认“动笔之前”的内容。你已经填写的内容不会被清空。',
       en: 'The community rules have changed. Please confirm "Before you write" first; your draft will stay on this page.'
