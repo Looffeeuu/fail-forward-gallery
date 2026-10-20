@@ -64,7 +64,8 @@
     'story-rate-limited',
     'too-many-pending-stories',
     'follow-up-rate-limited',
-    'too-many-pending-follow-ups'
+    'too-many-pending-follow-ups',
+    'own-content'
   ]);
 
   const CONTENT_PATHS = Object.freeze({

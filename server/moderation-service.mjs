@@ -59,9 +59,26 @@ export function createModerationService({
 }) {
   if (!database) throw new TypeError('Moderation service database is required.');
 
-  function decide(session, contentId, input, { invalidContent, moderate, conflictMessage }) {
+  // Reviewers never decide on what they wrote; another reviewer must. Their own
+  // items are also left out of their queue, so the refusal is rarely seen.
+  function requireOthersContent(session, contentType, contentId) {
+    if (database.findContentAuthor(contentType, contentId) === session.accountId) {
+      throw new ModerationError(
+        'own-content',
+        403,
+        'You cannot review your own content. Another reviewer will handle it.'
+      );
+    }
+  }
+
+  function notOwn(session, contentType) {
+    return (item) => database.findContentAuthor(contentType, item.id) !== session.accountId;
+  }
+
+  function decide(session, contentId, input, { contentType, invalidContent, moderate, conflictMessage }) {
     requireReviewer(session);
     const { id, decision, reason } = normaliseDecisionInput(contentId, input, invalidContent);
+    requireOthersContent(session, contentType, id);
     const result = moderate(id, {
       decision,
       reason,
@@ -75,24 +92,26 @@ export function createModerationService({
   return Object.freeze({
     listPendingStories(session) {
       requireReviewer(session);
-      return database.listStoriesForModeration('pending-human-review');
+      return database.listStoriesForModeration('pending-human-review').filter(notOwn(session, 'story'));
     },
 
     listPendingComments(session) {
       requireReviewer(session);
-      return database.listCommentsForModeration();
+      return database.listCommentsForModeration().filter(notOwn(session, 'comment'));
     },
 
     listPendingFollowUps(session) {
       requireReviewer(session);
-      return database.listFollowUpsForModeration();
+      return database.listFollowUpsForModeration().filter(notOwn(session, 'follow_up'));
     },
 
     // The original reviewer may still decide an appeal (small teams would
     // otherwise stall), but the queue tells them so they can hand it over.
     listPendingAppeals(session) {
       requireReviewer(session);
-      return database.listPendingAppeals().map(({
+      return database.listPendingAppeals()
+        .filter((appeal) => database.findContentAuthor(appeal.contentType, appeal.contentId) !== session.accountId)
+        .map(({
         originalDeciderAccountId,
         moderationCaseId,
         ...appeal
@@ -110,6 +129,8 @@ export function createModerationService({
         { code: 'invalid-appeal-id', message: 'Choose a valid appeal.' },
         APPEAL_DECISIONS
       );
+      const pendingAppeal = database.findAppeal(id);
+      if (pendingAppeal) requireOthersContent(session, pendingAppeal.contentType, pendingAppeal.contentId);
       const resolved = database.resolveAppeal({
         appealId: id,
         reviewerAccountId: session.accountId,
@@ -140,6 +161,7 @@ export function createModerationService({
           'Explain the recommendation in 8-300 characters.'
         );
       }
+      if (id && id.length <= 100) requireOthersContent(session, 'story', id);
       const recommended = id && id.length <= 100 && database.recommendStory({
         id: generateId(),
         storyId: id,
@@ -169,7 +191,8 @@ export function createModerationService({
     // Safety holds: unpublished for care rather than for breaking rules.
     listHeldContent(session) {
       requireReviewer(session);
-      return database.listHeldContent();
+      return database.listHeldContent()
+        .filter(({ contentType, content }) => database.findContentAuthor(contentType, content.id) !== session.accountId);
     },
 
     decideHeld({ session, contentType, contentId, input }) {
@@ -183,6 +206,7 @@ export function createModerationService({
         { code: 'invalid-content', message: 'Choose valid held content.' },
         new Set(Object.keys(HELD_DECISIONS))
       );
+      requireOthersContent(session, contentType, id);
       const decide = {
         story: (args) => database.moderateStory({ storyId: id, ...args }),
         comment: (args) => database.moderateComment({ commentId: id, ...args }),
@@ -202,7 +226,8 @@ export function createModerationService({
 
     listReportedContent(session) {
       requireReviewer(session);
-      return database.listReportedContent();
+      return database.listReportedContent()
+        .filter(({ contentType, contentId }) => database.findContentAuthor(contentType, contentId) !== session.accountId);
     },
 
     decideReports({ session, contentType, contentId, input }) {
@@ -216,6 +241,7 @@ export function createModerationService({
         { code: 'invalid-content', message: 'Choose valid reported content.' },
         REPORT_DECISIONS
       );
+      requireOthersContent(session, contentType, id);
       const resolved = database.resolveReports({
         contentType,
         contentId: id,
@@ -240,6 +266,7 @@ export function createModerationService({
 
     decideStory({ session, storyId, input }) {
       return decide(session, storyId, input, {
+        contentType: 'story',
         invalidContent: { code: 'invalid-story', message: 'Choose a valid story.' },
         moderate: (id, decision) => database.moderateStory({ storyId: id, ...decision }),
         conflictMessage: 'This story is no longer awaiting review.'
@@ -248,6 +275,7 @@ export function createModerationService({
 
     decideComment({ session, commentId, input }) {
       return decide(session, commentId, input, {
+        contentType: 'comment',
         invalidContent: { code: 'invalid-comment-id', message: 'Choose a valid response.' },
         moderate: (id, decision) => database.moderateComment({ commentId: id, ...decision }),
         conflictMessage: 'This response is no longer awaiting review.'
@@ -256,6 +284,7 @@ export function createModerationService({
 
     decideFollowUp({ session, followUpId, input }) {
       return decide(session, followUpId, input, {
+        contentType: 'follow_up',
         invalidContent: { code: 'invalid-follow-up-id', message: 'Choose a valid follow-up.' },
         moderate: (id, decision) => database.moderateFollowUp({ followUpId: id, ...decision }),
         conflictMessage: 'This follow-up is no longer awaiting review.'

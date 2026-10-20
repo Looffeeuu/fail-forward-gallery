@@ -2115,7 +2115,8 @@ function renderRankings() {
 }
 
 function renderRecommendationControl(story) {
-  if (!isServerStory(story) || !isReviewerSession()) return '';
+  // Reviewers cannot feature their own stories, so the tool is not offered.
+  if (!isServerStory(story) || !isReviewerSession() || isOwnedStory(story)) return '';
   const useChinese = tagUiState.language === 'zh';
   const current = rankingState.data?.rankings.recommended.find((entry) => entry.storyId === story.id);
   const message = rankingState.recommendMessage
@@ -2426,6 +2427,10 @@ function isReviewerSession(authState = window.FFG_AUTH?.getSnapshot()) {
 function getModerationErrorMessage(errorCode) {
   const useChinese = tagUiState.language === 'zh';
   const messages = {
+    'own-content': {
+      zh: '不能审核自己写的内容，需要由其他审核员处理。',
+      en: 'You cannot review your own content; another reviewer will handle it.'
+    },
     'moderator-required': {
       zh: '当前账户没有审核权限。',
       en: 'This account does not have reviewer access.'

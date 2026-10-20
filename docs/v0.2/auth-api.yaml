@@ -2009,7 +2009,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     ModeratorRequired:
-      description: An authenticated moderator or administrator role is required.
+      description: An authenticated moderator or administrator role is required, or the content is the reviewer's own (own-content); reviewers never decide on, resolve reports or appeals about, or recommend their own content.
       content:
         application/json:
           schema:

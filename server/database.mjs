@@ -1107,6 +1107,11 @@ export function createDatabase(databasePath) {
       return Boolean(accountId && selectConsent.get(accountId, policy, version));
     },
 
+    // Reviewer tools use this only to keep people from reviewing their own work.
+    findContentAuthor(contentType, contentId) {
+      return selectContentStatus[contentType]?.get(contentId)?.authorAccountId || null;
+    },
+
     findAccount(accountId) {
       return selectAccountById.get(accountId) || null;
     },
