@@ -108,8 +108,17 @@ const accountDataState = {
   message: ''
 };
 
+// The one "suspend the author" form open in the review queue.
+const suspendState = {
+  openKey: null,
+  messageKey: null,
+  message: ''
+};
+
 const teamState = {
   data: null,
+  suspensions: null,
+  suspensionMessage: '',
   loading: false,
   errorCode: null,
   message: '',
@@ -1820,6 +1829,21 @@ function initTeam() {
   if (!panel || !window.FFG_AUTH) return;
 
   panel.addEventListener('submit', async (event) => {
+    const liftForm = event.target.closest('[data-lift-form]');
+    if (liftForm) {
+      event.preventDefault();
+      const reason = liftForm.querySelector('[name="lift-reason"]').value.trim();
+      try {
+        teamState.suspensions = await window.FFG_CONTENT_API.liftSuspension(liftForm.dataset.suspensionId, reason);
+        teamState.suspensionMessage = tagUiState.language === 'zh' ? '账户已恢复，可以重新登录。' : 'The suspension was lifted; the account can sign in again.';
+      } catch (error) {
+        teamState.suspensionMessage = getTeamErrorMessage(error.code);
+        if (error.code === 'suspension-not-active') await loadTeam();
+      }
+      renderTeam();
+      document.getElementById('suspension-status')?.focus();
+      return;
+    }
     const form = event.target.closest('[data-appoint-form]');
     if (!form) return;
     event.preventDefault();
@@ -1870,7 +1894,12 @@ async function loadTeam() {
   }
   teamState.loading = true;
   try {
-    teamState.data = await window.FFG_CONTENT_API.listTeam();
+    const [team, suspensions] = await Promise.all([
+      window.FFG_CONTENT_API.listTeam(),
+      window.FFG_CONTENT_API.listSuspensions()
+    ]);
+    teamState.data = team;
+    teamState.suspensions = suspensions;
     teamState.errorCode = null;
   } catch (error) {
     teamState.errorCode = error.code || 'request-failed';
@@ -1893,6 +1922,44 @@ async function updateTeam(request, successMessage) {
   document.querySelector('.team-status')?.focus();
 }
 
+function renderSuspensionList() {
+  const useChinese = tagUiState.language === 'zh';
+  const suspensions = teamState.suspensions?.suspensions || [];
+  const date = (value) => (value ? formatOwnedStoryDate(value) : '');
+  return `
+    <section class="team-card" aria-labelledby="suspensions-heading">
+      <h2 id="suspensions-heading">${useChinese ? '已停用的账户' : 'Suspended accounts'}</h2>
+      <p class="form-help">${useChinese
+        ? '只显示停用理由和触发停用的内容，不显示账户是谁。'
+        : 'Shows the reason and the content that led to it, never whose account it is.'}</p>
+      ${teamState.suspensionMessage ? `<p class="team-status" id="suspension-status" role="status" tabindex="-1">${escapeHtml(teamState.suspensionMessage)}</p>` : ''}
+      ${suspensions.length ? `
+        <ul class="team-changes">
+          ${suspensions.map((suspension) => `
+            <li class="suspension-item${suspension.liftedAt ? ' is-lifted' : ''}">
+              <strong>${escapeHtml(suspension.reason)}</strong>
+              <span>${escapeHtml(suspension.excerpt || (useChinese ? '（内容已删除）' : '(content deleted)'))}</span>
+              <small>${escapeHtml(useChinese
+                ? `${suspension.suspendedByLabel || '一位管理员'} 停用于 ${date(suspension.suspendedAt)}`
+                : `Suspended by ${suspension.suspendedByLabel || 'an administrator'} on ${date(suspension.suspendedAt)}`)}</small>
+              ${suspension.liftedAt ? `
+                <small>${escapeHtml(useChinese
+                  ? `已由 ${suspension.liftedByLabel || '一位管理员'} 于 ${date(suspension.liftedAt)} 恢复：${suspension.liftReason}`
+                  : `Lifted by ${suspension.liftedByLabel || 'an administrator'} on ${date(suspension.liftedAt)}: ${suspension.liftReason}`)}</small>
+              ` : `
+                <form class="lift-form" data-lift-form data-suspension-id="${escapeHtml(suspension.id)}" novalidate>
+                  <input name="lift-reason" type="text" maxlength="300" placeholder="${useChinese ? '恢复理由（8–300 个字符）' : 'Reason to lift (8–300 characters)'}" aria-label="${useChinese ? '恢复理由' : 'Reason to lift'}">
+                  <button type="submit" class="btn btn-secondary btn-sm">${useChinese ? '恢复账户' : 'Lift suspension'}</button>
+                </form>
+              `}
+            </li>
+          `).join('')}
+        </ul>
+      ` : `<p class="form-help">${useChinese ? '目前没有被停用的账户。' : 'No accounts are suspended.'}</p>`}
+    </section>
+  `;
+}
+
 function getTeamErrorMessage(errorCode) {
   const useChinese = tagUiState.language === 'zh';
   const messages = {
@@ -1901,7 +1968,13 @@ function getTeamErrorMessage(errorCode) {
     'invalid-role': ['请选择审核员或管理员。', 'Choose reviewer or administrator.'],
     'cannot-change-own-role': ['不能修改自己的角色，请让另一位管理员操作。', 'You cannot change your own role; ask another administrator.'],
     'staff-not-found': ['找不到这位团队成员，列表已刷新。', 'This team member was not found; the list was refreshed.'],
-    'administrator-required': ['只有管理员可以管理团队。', 'Only administrators can manage the team.']
+    'administrator-required': ['只有管理员可以管理团队。', 'Only administrators can manage the team.'],
+    'invalid-suspension-reason': ['请填写 8–300 个字符的理由。', 'Give a reason of 8–300 characters.'],
+    'cannot-suspend-staff': ['这是审核团队成员的内容。请先撤销其角色，再停用账户。', 'This person is on the review team. Remove them from the team first.'],
+    'already-suspended': ['这个账户已经被停用。', 'This account is already suspended.'],
+    'author-unavailable': ['这条内容属于已删除的账户，无法停用；请通过审核处理内容本身。', 'This content belongs to a deleted account; handle the content through review instead.'],
+    'content-not-found': ['找不到这条内容。', 'This content could not be found.'],
+    'suspension-not-active': ['这项停用已经解除，列表已刷新。', 'This suspension was already lifted; the list was refreshed.']
   };
   const message = messages[errorCode] || ['操作没有成功，请稍后重试。', 'That did not work. Please try again.'];
   return message[useChinese ? 0 : 1];
@@ -1980,6 +2053,8 @@ function renderTeam() {
         }).join('')}
       </ul>
     </section>
+
+    ${renderSuspensionList()}
 
     <section class="team-card" aria-labelledby="changes-heading">
       <h2 id="changes-heading">${useChinese ? '最近的权限变更' : 'Recent role changes'}</h2>
@@ -2483,7 +2558,22 @@ function initModeration() {
     loadModerationStories();
   });
 
+  document.getElementById('moderation-list')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-suspend-action]');
+    if (!button) return;
+    suspendState.openKey = button.dataset.suspendAction === 'open' ? button.dataset.suspendKey : null;
+    suspendState.messageKey = null;
+    renderModeration();
+    document.querySelector('[data-suspend-form] textarea')?.focus();
+  });
+
   document.getElementById('moderation-list')?.addEventListener('submit', async (event) => {
+    const suspendForm = event.target.closest('[data-suspend-form]');
+    if (suspendForm) {
+      event.preventDefault();
+      suspendAuthorFromQueue(suspendForm);
+      return;
+    }
     const form = event.target.closest('[data-moderation-form]');
     if (!form) return;
     event.preventDefault();
@@ -2773,6 +2863,7 @@ function renderModerationItem({ contentType, item }) {
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
+      ${renderSuspendControl(contentType === 'follow-up' ? 'follow_up' : contentType, item.id)}
     </article>
   `;
 }
@@ -2856,6 +2947,7 @@ function renderHeldModerationItem(entry) {
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
+      ${renderSuspendControl(entry.contentType, entry.content.id)}
     </article>
   `;
 }
@@ -2901,8 +2993,67 @@ function renderReportModerationItem(group) {
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
+      ${renderSuspendControl(group.contentType, group.contentId)}
     </article>
   `;
+}
+
+// Administrators can stop an abusive account from anything it wrote. They see
+// only the content, never whose account it is.
+function renderSuspendControl(contentType, contentId) {
+  if (!window.FFG_AUTH?.can('manage-staff')) return '';
+  const useChinese = tagUiState.language === 'zh';
+  const key = `${contentType}:${contentId}`;
+  if (suspendState.messageKey === key) {
+    return `<p class="report-status" role="status">${escapeHtml(suspendState.message)}</p>`;
+  }
+  if (suspendState.openKey !== key) {
+    return `<button type="button" class="report-link" data-suspend-action="open" data-suspend-key="${escapeHtml(key)}">${useChinese ? '停用作者账户（管理员）' : 'Suspend the author (administrator)'}</button>`;
+  }
+  const fieldId = `suspend-${key.replace(/[^A-Za-z0-9-]/g, '-')}`;
+  return `
+    <form class="report-panel delete-account-panel" data-suspend-form data-suspend-key="${escapeHtml(key)}" novalidate>
+      <p>${useChinese
+        ? '写这条内容的账户会立即在所有设备上退出，并且无法再登录。你不会看到它是谁；可以在“团队管理”中恢复。只用于反复或严重的违规。'
+        : 'The account that wrote this is signed out everywhere and cannot sign in. You will not see who it is; you can lift this on the Team page. Use only for repeated or serious abuse.'}</p>
+      <label for="${fieldId}">${useChinese ? '停用理由（8–300 个字符，记录在案）' : 'Reason (8–300 characters, kept on record)'}</label>
+      <textarea id="${fieldId}" name="suspend-reason" rows="2" maxlength="300"></textarea>
+      <div class="owner-control-actions">
+        <button type="submit" class="btn btn-reject btn-sm">${useChinese ? '停用账户' : 'Suspend account'}</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-suspend-action="cancel">${useChinese ? '取消' : 'Cancel'}</button>
+      </div>
+      <p class="report-error" role="status" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+async function suspendAuthorFromQueue(form) {
+  const key = form.dataset.suspendKey;
+  const separator = key.indexOf(':');
+  const reason = form.querySelector('[name="suspend-reason"]').value.trim();
+  const error = form.querySelector('.report-error');
+  const useChinese = tagUiState.language === 'zh';
+  if (reason.length < 8 || reason.length > 300) {
+    error.textContent = useChinese ? '请填写 8–300 个字符的停用理由。' : 'Give a reason of 8–300 characters.';
+    return;
+  }
+  form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+  try {
+    await window.FFG_CONTENT_API.suspendAuthor({
+      contentType: key.slice(0, separator),
+      contentId: key.slice(separator + 1),
+      reason
+    });
+    suspendState.openKey = null;
+    suspendState.messageKey = key;
+    suspendState.message = useChinese
+      ? '作者账户已停用并退出登录。可以在“团队管理”中查看或恢复。'
+      : 'The author was suspended and signed out. See or lift it on the Team page.';
+    renderModeration();
+  } catch (requestError) {
+    form.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+    error.textContent = getTeamErrorMessage(requestError.code);
+  }
 }
 
 // An appeal shows the rejected content, the original reason, and the author's
@@ -2949,6 +3100,7 @@ function renderAppealModerationItem(appeal) {
         </div>
         <p class="moderation-card-status" data-review-status role="status" aria-live="polite"></p>
       </form>
+      ${renderSuspendControl(appeal.contentType, appeal.content.id)}
     </article>
   `;
 }

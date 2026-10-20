@@ -14,6 +14,7 @@ import { createSmsProvider } from './sms-provider.mjs';
 import { createStaffService } from './staff-service.mjs';
 import { createStoryResponseService } from './story-response-service.mjs';
 import { createStoryService } from './story-service.mjs';
+import { createSuspensionService } from './suspension-service.mjs';
 import { createViewService } from './view-service.mjs';
 
 const database = createDatabase(config.databasePath);
@@ -42,6 +43,7 @@ const rankingService = createRankingService({ database, storyService });
 const staffService = createStaffService({ database, secret: config.authSecret });
 const consentService = createConsentService({ database, policyVersions });
 const accountService = createAccountService({ database, storyService, storyResponseService });
+const suspensionService = createSuspensionService({ database });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
@@ -55,6 +57,7 @@ const server = createHttpServer({
   staffService,
   consentService,
   accountService,
+  suspensionService,
   moderationService,
   config
 });

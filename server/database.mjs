@@ -366,6 +366,24 @@ export function createDatabase(databasePath) {
       PRIMARY KEY (account_id, policy, version)
     );
 
+    -- Suspensions start from a piece of content, so administrators never need
+    -- to see who wrote it. Lifting keeps the row as the record.
+    CREATE TABLE IF NOT EXISTS account_suspensions (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      content_type TEXT NOT NULL CHECK (content_type IN ('story', 'comment', 'follow_up')),
+      content_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      suspended_by_account_id TEXT REFERENCES accounts(id),
+      suspended_at TEXT NOT NULL,
+      lift_reason TEXT,
+      lifted_by_account_id TEXT REFERENCES accounts(id),
+      lifted_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS account_suspensions_account_index
+      ON account_suspensions(account_id, lifted_at);
+
     CREATE TABLE IF NOT EXISTS staff_profiles (
       account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
       label TEXT NOT NULL,
@@ -497,12 +515,15 @@ export function createDatabase(databasePath) {
     'UPDATE moderation_cases SET decided_by_account_id = NULL WHERE decided_by_account_id = ?',
     'UPDATE appeals SET decided_by_account_id = NULL WHERE decided_by_account_id = ?',
     'UPDATE reports SET resolved_by_account_id = NULL WHERE resolved_by_account_id = ?',
-    'UPDATE story_recommendations SET removed_by_account_id = NULL WHERE removed_by_account_id = ?'
+    'UPDATE story_recommendations SET removed_by_account_id = NULL WHERE removed_by_account_id = ?',
+    'UPDATE account_suspensions SET suspended_by_account_id = NULL WHERE suspended_by_account_id = ?',
+    'UPDATE account_suspensions SET lifted_by_account_id = NULL WHERE lifted_by_account_id = ?'
   ].map((sql) => database.prepare(sql));
   const accountReferenceReassignments = [
     'UPDATE story_recommendations SET recommended_by_account_id = ? WHERE recommended_by_account_id = ?',
     'UPDATE role_changes SET account_id = ? WHERE account_id = ?',
-    'UPDATE role_changes SET changed_by_account_id = ? WHERE changed_by_account_id = ?'
+    'UPDATE role_changes SET changed_by_account_id = ? WHERE changed_by_account_id = ?',
+    'UPDATE account_suspensions SET account_id = ? WHERE account_id = ?'
   ].map((sql) => database.prepare(sql));
   // Reports and notices about content that no longer exists are meaningless.
   const missingContent = [
@@ -527,6 +548,39 @@ export function createDatabase(databasePath) {
   const selectAccountById = database.prepare(
     'SELECT id, role, status, created_at AS createdAt FROM accounts WHERE id = ?'
   );
+  const updateAccountStatus = database.prepare(
+    'UPDATE accounts SET status = ?, updated_at = ? WHERE id = ?'
+  );
+  const deleteSessionsForAccount = database.prepare('DELETE FROM sessions WHERE account_id = ?');
+  const insertSuspension = database.prepare([
+    'INSERT INTO account_suspensions',
+    '(id, account_id, content_type, content_id, reason, suspended_by_account_id, suspended_at)',
+    'VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ].join(' '));
+  const selectSuspensionById = database.prepare(
+    'SELECT id, account_id AS accountId, lifted_at AS liftedAt FROM account_suspensions WHERE id = ?'
+  );
+  const liftSuspensionRow = database.prepare([
+    'UPDATE account_suspensions SET lift_reason = ?, lifted_by_account_id = ?, lifted_at = ?',
+    'WHERE id = ? AND lifted_at IS NULL'
+  ].join(' '));
+  // Administrators see why and by whom, never whose account it is.
+  const selectSuspensions = database.prepare([
+    'SELECT account_suspensions.id AS id, account_suspensions.content_type AS contentType,',
+    'account_suspensions.content_id AS contentId, account_suspensions.reason AS reason,',
+    'account_suspensions.suspended_at AS suspendedAt, account_suspensions.lift_reason AS liftReason,',
+    'account_suspensions.lifted_at AS liftedAt,',
+    "COALESCE(suspender.label, '') AS suspendedByLabel, COALESCE(lifter.label, '') AS liftedByLabel",
+    'FROM account_suspensions',
+    'LEFT JOIN staff_profiles suspender ON suspender.account_id = account_suspensions.suspended_by_account_id',
+    'LEFT JOIN staff_profiles lifter ON lifter.account_id = account_suspensions.lifted_by_account_id',
+    'ORDER BY account_suspensions.lifted_at IS NOT NULL, account_suspensions.suspended_at DESC LIMIT ?'
+  ].join(' '));
+  const selectContentExcerpt = {
+    story: database.prepare('SELECT title, body AS content FROM stories WHERE id = ?'),
+    comment: database.prepare("SELECT '' AS title, body AS content FROM comments WHERE id = ?"),
+    follow_up: database.prepare("SELECT '' AS title, body AS content FROM follow_ups WHERE id = ?")
+  };
   const updateAccountRole = database.prepare(
     'UPDATE accounts SET role = ?, updated_at = ? WHERE id = ?'
   );
@@ -1203,6 +1257,36 @@ export function createDatabase(databasePath) {
         deleteAccountRow.run(accountId);
       });
       return summary;
+    },
+
+    // Suspends the account and ends its sessions in one step, so a suspended
+    // person is signed out everywhere at once.
+    suspendAccount({ id, accountId, contentType, contentId, reason, suspendedByAccountId, suspendedAt }) {
+      const timestamp = suspendedAt.toISOString();
+      withTransaction(() => {
+        updateAccountStatus.run('suspended', timestamp, accountId);
+        deleteSessionsForAccount.run(accountId);
+        insertSuspension.run(id, accountId, contentType, contentId, reason, suspendedByAccountId, timestamp);
+      });
+    },
+
+    // Returns false when the suspension does not exist or was already lifted.
+    liftSuspension({ suspensionId, reason, liftedByAccountId, liftedAt }) {
+      const timestamp = liftedAt.toISOString();
+      const suspension = selectSuspensionById.get(suspensionId);
+      if (!suspension || suspension.liftedAt) return false;
+      withTransaction(() => {
+        liftSuspensionRow.run(reason, liftedByAccountId, timestamp, suspensionId);
+        updateAccountStatus.run('active', timestamp, suspension.accountId);
+      });
+      return true;
+    },
+
+    listSuspensions(limit = 50) {
+      return selectSuspensions.all(limit).map((suspension) => {
+        const content = selectContentExcerpt[suspension.contentType].get(suspension.contentId);
+        return { ...suspension, content: content || null };
+      });
     },
 
     findAccount(accountId) {

@@ -2366,6 +2366,19 @@ body.modal-open { overflow: hidden; }
 .delete-account-panel { border-color: #b58c84; }
 .delete-account-panel fieldset { display: grid; gap: 0.25rem; margin: 0; padding: 0; border: none; }
 .delete-account-panel legend { margin-bottom: 0.4rem; font-weight: 700; }
+.suspension-item { gap: 0.3rem; }
+.suspension-item.is-lifted { opacity: 0.75; }
+.lift-form { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.3rem; }
+.lift-form input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
 .owner-controls {
   display: grid;
   gap: 0.6rem;

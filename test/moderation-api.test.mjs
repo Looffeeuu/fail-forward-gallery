@@ -14,6 +14,7 @@ import { createReportService } from '../server/report-service.mjs';
 import { createStaffService } from '../server/staff-service.mjs';
 import { createStoryResponseService } from '../server/story-response-service.mjs';
 import { createStoryService } from '../server/story-service.mjs';
+import { createSuspensionService } from '../server/suspension-service.mjs';
 import { createViewService } from '../server/view-service.mjs';
 
 function updateCookieJar(jar, headers) {
@@ -118,6 +119,7 @@ test('moderation API enforces reviewer access and publishes only approved storie
       storyService: createStoryService({ database }),
       storyResponseService: createStoryResponseService({ database })
     }),
+    suspensionService: createSuspensionService({ database }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',

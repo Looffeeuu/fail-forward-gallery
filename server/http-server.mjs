@@ -225,6 +225,7 @@ export function createHttpServer({
   staffService,
   consentService,
   accountService,
+  suspensionService,
   moderationService,
   config,
   logger = console
@@ -241,6 +242,7 @@ export function createHttpServer({
     || !staffService
     || !consentService
     || !accountService
+    || !suspensionService
     || !moderationService
     || !config
   ) {
@@ -463,6 +465,36 @@ export function createHttpServer({
           phone: body.phone,
           label: body.label,
           role: body.role
+        }));
+        return;
+      }
+
+      if (url.pathname === '/api/v1/admin/suspensions' && ['GET', 'POST'].includes(request.method)) {
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        if (request.method === 'GET') {
+          sendJson(response, 200, suspensionService.list(session));
+          return;
+        }
+        requireCsrf(request, cookies);
+        const body = await readJson(request);
+        sendJson(response, 200, suspensionService.suspendAuthor({
+          session,
+          contentType: body.contentType,
+          contentId: body.contentId,
+          reason: body.reason
+        }));
+        return;
+      }
+
+      const liftMatch = url.pathname.match(/^\/api\/v1\/admin\/suspensions\/([^/]+)\/lift$/);
+      if (request.method === 'POST' && liftMatch) {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 200, suspensionService.liftSuspension({
+          session,
+          suspensionId: decodePathSegment(liftMatch[1]),
+          reason: body.reason
         }));
         return;
       }

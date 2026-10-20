@@ -134,6 +134,7 @@ The project is in active implementation. The public site serves the static brows
 - Team management: administrators appoint and remove reviewers by mobile number (hashed, never stored), with a logged history; the first administrator is set with `npm run staff -- grant-admin`.
 - Versioned privacy notice and community rules (`policies.json`): agreement is required and recorded before sign-in and before a first story, and asked again when a version changes.
 - Self-service data export and account deletion, with the choice to delete or anonymously keep public content.
+- Account suspension by administrators, started from a piece of content so the account stays anonymous, with a lift history.
 - In-site review notifications with an unread badge.
 - Story rankings refreshed every minute, with de-duplicated, privacy-preserving view counting.
 - Role-protected human-review queue for stories, comments, follow-ups, appeals, and reports, with reasons and immutable audit events.

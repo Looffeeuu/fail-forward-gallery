@@ -67,7 +67,12 @@
     'too-many-pending-follow-ups',
     'own-content',
     'staff-cannot-delete',
-    'deletion-not-confirmed'
+    'deletion-not-confirmed',
+    'invalid-suspension-reason',
+    'author-unavailable',
+    'cannot-suspend-staff',
+    'already-suspended',
+    'suspension-not-active'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -267,6 +272,23 @@
         details: String(report?.details || ''),
         createdAt: String(report?.createdAt || '')
       })))
+    });
+  }
+
+  function sanitiseSuspensions(payload) {
+    return Object.freeze({
+      suspensions: Object.freeze((Array.isArray(payload.suspensions) ? payload.suspensions : [])
+        .map((suspension) => Object.freeze({
+          id: String(suspension?.id || ''),
+          reason: String(suspension?.reason || ''),
+          excerpt: optionalString(suspension?.excerpt),
+          suspendedAt: String(suspension?.suspendedAt || ''),
+          suspendedByLabel: String(suspension?.suspendedByLabel || ''),
+          liftedAt: optionalString(suspension?.liftedAt),
+          liftedByLabel: String(suspension?.liftedByLabel || ''),
+          liftReason: optionalString(suspension?.liftReason)
+        }))
+        .filter(({ id }) => id))
     });
   }
 
@@ -629,6 +651,24 @@
           { method: 'POST', body: JSON.stringify(input) }
         );
         return payload.content;
+      },
+
+      async listSuspensions() {
+        return sanitiseSuspensions(await adapter.requestJson('/api/v1/admin/suspensions', { method: 'GET' }));
+      },
+
+      async suspendAuthor(input) {
+        return sanitiseSuspensions(await adapter.requestJson('/api/v1/admin/suspensions', {
+          method: 'POST',
+          body: JSON.stringify(input)
+        }));
+      },
+
+      async liftSuspension(suspensionId, reason) {
+        return sanitiseSuspensions(await adapter.requestJson(
+          `/api/v1/admin/suspensions/${encodeURIComponent(suspensionId)}/lift`,
+          { method: 'POST', body: JSON.stringify({ reason }) }
+        ));
       },
 
       async listTeam() {

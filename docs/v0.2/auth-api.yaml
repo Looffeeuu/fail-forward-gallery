@@ -1218,6 +1218,129 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/admin/suspensions:
+    get:
+      summary: List account suspensions
+      operationId: listSuspensions
+      description: Administrators only. Each entry shows the reason, who acted, and an excerpt of the content that led to it, never whose account it is. Active suspensions come first.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Suspensions, active first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspensionList'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required (administrator-required).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Suspend the account that wrote a piece of content
+      operationId: suspendAuthor
+      description: Suspends the author and ends all their sessions in one step; they cannot sign in until lifted. Review team members and content kept from deleted accounts cannot be suspended.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentType, contentId, reason]
+              properties:
+                contentType:
+                  type: string
+                  enum: [story, comment, follow_up]
+                contentId:
+                  type: string
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 300
+      responses:
+        '200':
+          description: Suspended; the updated list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspensionList'
+        '400':
+          description: Invalid reason (invalid-suspension-reason).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required, or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ContentNotFound'
+        '409':
+          description: Already suspended, the author is on the review team (cannot-suspend-staff), or the content belongs to a deleted account (author-unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/admin/suspensions/{suspensionId}/lift:
+    post:
+      summary: Lift a suspension
+      operationId: liftSuspension
+      description: Restores sign-in. The suspension stays on record with the lift reason.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: suspensionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 8
+                  maxLength: 300
+      responses:
+        '200':
+          description: Lifted; the updated list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspensionList'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          description: Administrator access is required, or the CSRF token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Not an active suspension (suspension-not-active).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1833,6 +1956,45 @@ components:
         accepted:
           type: boolean
           description: Whether this account agreed to that exact version.
+    SuspensionList:
+      type: object
+      required: [suspensions]
+      properties:
+        suspensions:
+          type: array
+          items:
+            type: object
+            required: [id, reason, suspendedAt]
+            properties:
+              id:
+                type: string
+              contentType:
+                type: string
+              contentId:
+                type: string
+              reason:
+                type: string
+              excerpt:
+                oneOf:
+                  - type: string
+                  - type: 'null'
+                description: Start of the content that led to the suspension; null if it was deleted.
+              suspendedAt:
+                type: string
+                format: date-time
+              suspendedByLabel:
+                type: string
+              liftedAt:
+                oneOf:
+                  - type: string
+                    format: date-time
+                  - type: 'null'
+              liftedByLabel:
+                type: string
+              liftReason:
+                oneOf:
+                  - type: string
+                  - type: 'null'
     ReviewDecision:
       type: object
       additionalProperties: false
