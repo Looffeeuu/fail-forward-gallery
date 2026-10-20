@@ -6,6 +6,9 @@ import {
   timingSafeEqual
 } from 'node:crypto';
 
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
 export class AuthError extends Error {
   constructor(code, status, message, retryAfterSeconds = null) {
     super(message);
@@ -44,6 +47,9 @@ export function createAuthService({
   maxVerificationAttempts = 5,
   maxRequestsPerIpWindow = 20,
   requestWindowMs = 10 * 60 * 1000,
+  // Per-number caps stop changing networks from being used to flood one phone.
+  maxCodesPerPhonePerHour = 5,
+  maxCodesPerPhonePerDay = 10,
   developmentModeratorPhone = '',
   // When set, sign-in requires agreeing to this privacy notice version.
   policyVersions = null,
@@ -57,6 +63,7 @@ export function createAuthService({
 
   const challenges = new Map();
   const lastRequestByPhone = new Map();
+  const codeTimesByPhone = new Map();
   const requestsByIp = new Map();
   const normalisedDevelopmentModeratorPhone = developmentModeratorPhone
     ? normaliseMainlandPhone(developmentModeratorPhone)
@@ -116,6 +123,11 @@ export function createAuthService({
         lastRequestByPhone.delete(fingerprint);
       }
     }
+    for (const [fingerprint, times] of codeTimesByPhone) {
+      const recent = times.filter((sentAt) => timestamp - sentAt < DAY_MS);
+      if (recent.length) codeTimesByPhone.set(fingerprint, recent);
+      else codeTimesByPhone.delete(fingerprint);
+    }
     for (const [ip, window] of requestsByIp) {
       if (timestamp - window.startedAt >= requestWindowMs) requestsByIp.delete(ip);
     }
@@ -173,6 +185,19 @@ export function createAuthService({
         );
       }
 
+      const sentTimes = codeTimesByPhone.get(phoneFingerprint) || [];
+      [[HOUR_MS, maxCodesPerPhonePerHour], [DAY_MS, maxCodesPerPhonePerDay]].forEach(([windowMs, limit]) => {
+        const inWindow = sentTimes.filter((sentAt) => timestamp - sentAt < windowMs);
+        if (inWindow.length >= limit) {
+          throw new AuthError(
+            'rate-limited',
+            429,
+            'Too many codes were requested for this number. Try again later.',
+            Math.max(1, Math.ceil((Math.min(...inWindow) + windowMs - timestamp) / 1000))
+          );
+        }
+      });
+
       const code = generateCode();
       if (!/^\d{6}$/.test(code)) throw new Error('The SMS provider code generator must return six digits.');
 
@@ -193,6 +218,7 @@ export function createAuthService({
 
       challenges.set(phoneFingerprint, challenge);
       lastRequestByPhone.set(phoneFingerprint, timestamp);
+      codeTimesByPhone.set(phoneFingerprint, [...sentTimes, timestamp]);
 
       return Object.freeze({
         status: 'accepted',

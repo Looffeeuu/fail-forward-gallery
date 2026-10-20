@@ -111,3 +111,42 @@ test('verification requests validate phone numbers, expire, and rate-limit repea
     (error) => error.code === 'code-expired'
   );
 });
+
+test('one number gets at most 5 codes an hour and 10 a day, from any network', async () => {
+  const database = createDatabase(':memory:');
+  let time = new Date('2026-10-20T00:00:00.000Z').getTime();
+  let sent = 0;
+  const auth = createAuthService({
+    database,
+    smsProvider: { async sendVerificationCode() { sent += 1; } },
+    secret: 'sms-cap-test-secret-that-is-long-enough',
+    verificationCooldownMs: 60 * 1000,
+    maxRequestsPerIpWindow: 1000,
+    now: () => new Date(time)
+  });
+  const request = (ip) => auth.requestCode({ phone: '13800138000', ip });
+
+  for (let index = 0; index < 5; index += 1) {
+    await request(`198.51.100.${index}`);
+    time += 61 * 1000;
+  }
+  await assert.rejects(request('203.0.113.7'), (error) => (
+    error.code === 'rate-limited' && error.retryAfterSeconds > 0
+  ));
+
+  // Spread over the day, the daily cap still applies.
+  for (let hour = 0; hour < 3; hour += 1) {
+    time += 60 * 60 * 1000;
+    for (let index = 0; index < 5 && sent < 10; index += 1) {
+      await request(`192.0.2.${hour}${index}`);
+      time += 61 * 1000;
+    }
+  }
+  assert.equal(sent, 10);
+  time += 60 * 60 * 1000;
+  await assert.rejects(request('192.0.2.200'), { code: 'rate-limited' });
+  time += 24 * 60 * 60 * 1000;
+  await request('192.0.2.201');
+  assert.equal(sent, 11, 'a new day allows codes again');
+  database.close();
+});
