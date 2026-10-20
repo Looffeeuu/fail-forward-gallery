@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createAuthService } from '../server/auth-service.mjs';
+import { createConsentService } from '../server/consent-service.mjs';
 import { createAuthorControlService } from '../server/author-control-service.mjs';
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
@@ -81,6 +82,7 @@ test('story response API enforces ownership, boundaries, and human review', asyn
     viewService: createViewService({ database, secret: 'test-view-secret' }),
     rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     staffService: createStaffService({ database, secret: 'test-staff-secret' }),
+    consentService: createConsentService({ database, policyVersions: { privacy: 'test', community: 'test' } }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -238,6 +240,24 @@ test('story response API enforces ownership, boundaries, and human review', asyn
   assert.equal(pick.status, 200);
   const picked = await visitor.send('/api/v1/rankings');
   assert.equal(picked.payload.rankings.recommended[0].reason, 'A thoughtful account of a hard season.');
+
+  // Agreeing to the community rules is recorded per account and version.
+  const outdated = await author.send('/api/v1/me/consents', {
+    method: 'POST',
+    body: { policy: 'community', version: 'old' }
+  });
+  assert.equal(outdated.status, 409);
+  const agreed = await author.send('/api/v1/me/consents', {
+    method: 'POST',
+    body: { policy: 'community', version: 'test' }
+  });
+  assert.equal(agreed.payload.consents.community.accepted, true);
+  const sessionAfter = await author.send('/api/v1/auth/session');
+  assert.equal(sessionAfter.payload.account.consents.community.accepted, true);
+  assert.equal((await visitor.send('/api/v1/me/consents', {
+    method: 'POST',
+    body: { policy: 'community', version: 'test' }
+  })).status, 401);
 
   // The safety-hold queue is for reviewers only.
   assert.equal((await reader.send('/api/v1/moderation/safety-holds')).status, 403);

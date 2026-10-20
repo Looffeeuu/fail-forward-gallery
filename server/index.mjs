@@ -1,10 +1,12 @@
 import { createAuthService } from './auth-service.mjs';
 import { createAuthorControlService } from './author-control-service.mjs';
+import { createConsentService } from './consent-service.mjs';
 import { config } from './config.mjs';
 import { createDatabase } from './database.mjs';
 import { createHttpServer } from './http-server.mjs';
 import { createModerationService } from './moderation-service.mjs';
 import { createNotificationService } from './notification-service.mjs';
+import { loadPolicyVersions } from './policies.mjs';
 import { createRankingService } from './ranking-service.mjs';
 import { createReportService } from './report-service.mjs';
 import { createSmsProvider } from './sms-provider.mjs';
@@ -14,6 +16,7 @@ import { createStoryService } from './story-service.mjs';
 import { createViewService } from './view-service.mjs';
 
 const database = createDatabase(config.databasePath);
+const policyVersions = loadPolicyVersions(config.projectRoot);
 const smsProvider = createSmsProvider({
   providerName: config.smsProvider,
   isProduction: config.isProduction
@@ -25,9 +28,10 @@ const authService = createAuthService({
   sessionTtlMs: config.sessionTtlMs,
   verificationTtlMs: config.verificationTtlMs,
   verificationCooldownMs: config.verificationCooldownMs,
-  developmentModeratorPhone: config.developmentModeratorPhone
+  developmentModeratorPhone: config.developmentModeratorPhone,
+  policyVersions
 });
-const storyService = createStoryService({ database });
+const storyService = createStoryService({ database, policyVersions });
 const storyResponseService = createStoryResponseService({ database });
 const authorControlService = createAuthorControlService({ database });
 const notificationService = createNotificationService({ database });
@@ -35,6 +39,7 @@ const reportService = createReportService({ database });
 const viewService = createViewService({ database, secret: config.authSecret });
 const rankingService = createRankingService({ database, storyService });
 const staffService = createStaffService({ database, secret: config.authSecret });
+const consentService = createConsentService({ database, policyVersions });
 const moderationService = createModerationService({ database });
 const server = createHttpServer({
   authService,
@@ -46,6 +51,7 @@ const server = createHttpServer({
   viewService,
   rankingService,
   staffService,
+  consentService,
   moderationService,
   config
 });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { createAuthService } from '../server/auth-service.mjs';
+import { createConsentService } from '../server/consent-service.mjs';
 import { createAuthorControlService } from '../server/author-control-service.mjs';
 import { createDatabase } from '../server/database.mjs';
 import { createHttpServer } from '../server/http-server.mjs';
@@ -56,6 +57,7 @@ test('HTTP authentication flow uses CSRF and HttpOnly session cookies', async (t
     viewService: createViewService({ database, secret: 'test-view-secret' }),
     rankingService: createRankingService({ database, storyService: createStoryService({ database }) }),
     staffService: createStaffService({ database, secret: 'test-staff-secret' }),
+    consentService: createConsentService({ database, policyVersions: { privacy: 'test', community: 'test' } }),
     moderationService: createModerationService({ database }),
     config: {
       environment: 'test',
@@ -125,7 +127,15 @@ test('HTTP authentication flow uses CSRF and HttpOnly session cookies', async (t
   assert.equal(verification.status, 200);
   updateCookieJar(cookies, verification.headers);
   const verifiedPayload = await verification.json();
-  assert.deepEqual(verifiedPayload.account, { role: 'member', status: 'active' });
+  // Only role, status, and policy agreement reach the browser: no ids or phone data.
+  assert.deepEqual(verifiedPayload.account, {
+    role: 'member',
+    status: 'active',
+    consents: {
+      privacy: { version: 'test', accepted: false },
+      community: { version: 'test', accepted: false }
+    }
+  });
   assert.match(verification.headers.get('set-cookie'), /HttpOnly/);
 
   const restored = await fetch(`${baseUrl}/api/v1/auth/session`, {

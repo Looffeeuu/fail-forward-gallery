@@ -97,6 +97,11 @@ const rankingState = {
   recommendMessage: ''
 };
 
+// policies.json drives the rules and privacy pages and the versions people agree to.
+const policyState = {
+  policies: null
+};
+
 const teamState = {
   data: null,
   loading: false,
@@ -183,6 +188,7 @@ function initApp() {
   if (appState.initialised) return;
 
   appState.initialised = true;
+  loadPolicies();
   loadPreferredLanguage();
   loadDemoStories();
   initNavigation();
@@ -248,6 +254,7 @@ function setSiteLanguage(nextLanguage) {
   renderNotifications();
   renderRankings();
   renderTeam();
+  renderPolicyPages();
   moderationState.message = '';
   renderModeration();
 
@@ -527,6 +534,11 @@ function syncDemoStoryResetButton() {
 function initNavigation() {
   const navToggle = document.querySelector('.nav-toggle');
   const navLinks = document.querySelector('.nav-links');
+
+  document.addEventListener('click', (event) => {
+    const consentButton = event.target.closest('[data-consent-action]');
+    if (consentButton) acceptPolicyFromPage(consentButton.dataset.consentAction);
+  });
 
   document.addEventListener('click', (event) => {
     const pageTrigger = event.target.closest('[data-page]');
@@ -3463,7 +3475,135 @@ function renderMyStories(authState = window.FFG_AUTH?.getSnapshot()) {
   }).join('');
 }
 
+function loadPolicies() {
+  window.FFG_POLICIES_READY = fetch('policies.json', { cache: 'no-store' })
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
+  window.FFG_POLICIES_READY.then((policies) => {
+    policyState.policies = policies;
+    renderPolicyPages();
+    syncConsentUI();
+  });
+}
+
+function localised(text) {
+  return text?.[tagUiState.language === 'zh' ? 'zh' : 'en'] || '';
+}
+
+function renderPolicyPages() {
+  [['community', 'policy-community'], ['privacy', 'policy-privacy']].forEach(([name, elementId]) => {
+    const container = document.getElementById(elementId);
+    const policy = policyState.policies?.[name];
+    if (!container || !policy) return;
+    const useChinese = tagUiState.language === 'zh';
+    container.innerHTML = `
+      <header class="policy-header">
+        <span class="prototype-badge">${escapeHtml(`${useChinese ? '版本' : 'Version'} ${policy.version}`)}</span>
+        <h1>${escapeHtml(localised(policy.title))}</h1>
+        <p>${escapeHtml(localised(policy.intro))}</p>
+        ${policy.status === 'draft' ? `
+          <p class="policy-draft">${useChinese
+            ? '草案：正式试点前将由团队审阅；标有【待团队补充】的内容尚未确定。'
+            : 'Draft: the team will review this before the pilot. Items marked "To be completed by the team" are not settled yet.'}</p>
+        ` : ''}
+      </header>
+      ${policy.summary ? `
+        <section class="policy-summary">
+          <h2>${useChinese ? '动笔之前' : 'Before you write'}</h2>
+          <ul>${policy.summary.map((item) => `<li>${escapeHtml(localised(item))}</li>`).join('')}</ul>
+        </section>
+      ` : ''}
+      ${policy.sections.map((section) => `
+        <section>
+          <h2>${escapeHtml(localised(section.heading))}</h2>
+          <ul>${section.items.map((item) => `<li>${escapeHtml(localised(item))}</li>`).join('')}</ul>
+        </section>
+      `).join('')}
+    `;
+  });
+}
+
+// Writers confirm the current community rules once per version, and signed-in
+// people re-agree to a changed privacy notice. Both are recorded on the server.
+function syncConsentUI(authState = window.FFG_AUTH?.getSnapshot()) {
+  const gate = document.getElementById('community-gate');
+  const form = document.getElementById('submit-form');
+  const privacyUpdate = document.getElementById('privacy-update');
+  const policies = policyState.policies;
+  const signedIn = authState?.status === window.FFG_AUTH?.STATUS.AUTHENTICATED;
+  const consents = authState?.account?.consents;
+  const serverMode = Boolean(window.FFG_CONTENT_API?.enabled);
+  const useChinese = tagUiState.language === 'zh';
+
+  const needsGate = Boolean(serverMode && signedIn && policies && consents && !consents.community.accepted);
+  // The older static notice repeats the gate's heading, so only one is shown.
+  const staticNotice = document.querySelector('#page-submit .safety-note');
+  if (staticNotice) staticNotice.hidden = needsGate;
+  if (gate && form) {
+    gate.hidden = !needsGate;
+    if (needsGate) {
+      form.hidden = true;
+      form.dataset.gated = 'true';
+      gate.innerHTML = `
+        <h2 id="community-gate-title">${useChinese ? '动笔之前' : 'Before you write'}</h2>
+        <p>${useChinese
+          ? `开始写之前，请先读一读这几条（社区规则 ${escapeHtml(policies.community.version)} 版）。规则有重要变化时，我们会请你再确认一次。`
+          : `Before you start, please read these points (community rules, version ${escapeHtml(policies.community.version)}). If the rules change materially, we will ask again.`}</p>
+        <ul>${policies.community.summary.map((item) => `<li>${escapeHtml(localised(item))}</li>`).join('')}</ul>
+        <p><a href="#" data-page="rules">${useChinese ? '阅读完整的社区规则' : 'Read the full community rules'}</a></p>
+        <label class="consent-check">
+          <input type="checkbox" id="community-consent">
+          <span>${useChinese ? '我已阅读并知晓' : 'I have read and understand these points'}</span>
+        </label>
+        <button type="button" class="btn btn-primary" data-consent-action="community">${useChinese ? '开始写故事' : 'Start writing'}</button>
+        <p class="report-error" id="community-gate-status" role="status" aria-live="polite"></p>
+      `;
+    } else if (form.dataset.gated === 'true') {
+      form.hidden = false;
+      delete form.dataset.gated;
+    }
+  }
+
+  const needsPrivacy = Boolean(serverMode && signedIn && policies && consents && !consents.privacy.accepted);
+  if (privacyUpdate) {
+    privacyUpdate.hidden = !needsPrivacy;
+    privacyUpdate.innerHTML = needsPrivacy ? `
+      <span class="account-eyebrow">${useChinese ? '需要你确认' : 'Your confirmation is needed'}</span>
+      <h2>${useChinese ? '请阅读最新的隐私说明' : 'Please read the current privacy notice'}</h2>
+      <p>${useChinese
+        ? `隐私说明（${escapeHtml(policies.privacy.version)} 版）有更新，或你还没有确认过。`
+        : `The privacy notice (version ${escapeHtml(policies.privacy.version)}) has changed, or you have not agreed to it yet.`}
+        <a href="#" data-page="privacy">${useChinese ? '阅读隐私说明' : 'Read the privacy notice'}</a></p>
+      <button type="button" class="btn btn-primary" data-consent-action="privacy">${useChinese ? '我已阅读并同意' : 'I have read and agree'}</button>
+      <p class="report-error" id="privacy-update-status" role="status" aria-live="polite"></p>
+    ` : '';
+  }
+}
+
+async function acceptPolicyFromPage(policy) {
+  const version = policyState.policies?.[policy]?.version;
+  const status = document.getElementById(policy === 'community' ? 'community-gate-status' : 'privacy-update-status');
+  const useChinese = tagUiState.language === 'zh';
+  if (policy === 'community' && !document.getElementById('community-consent')?.checked) {
+    if (status) status.textContent = useChinese ? '请先勾选“我已阅读并知晓”。' : 'Tick the box to confirm you have read these points.';
+    document.getElementById('community-consent')?.focus();
+    return;
+  }
+  try {
+    await window.FFG_CONTENT_API.acceptPolicy(policy, version);
+    await window.FFG_AUTH.restoreSession();
+    if (policy === 'community') document.getElementById('story-title')?.focus();
+  } catch (error) {
+    if (status) {
+      status.textContent = error.code === 'policy-version-outdated'
+        ? (useChinese ? '规则刚刚更新了，请刷新页面阅读最新版本。' : 'The rules just changed. Refresh the page to read the current version.')
+        : (useChinese ? '暂时无法保存你的确认，请稍后重试。' : 'Your confirmation could not be saved. Please try again.');
+    }
+  }
+}
+
 function syncSubmissionModeUI(authState = window.FFG_AUTH?.getSnapshot()) {
+  syncConsentUI(authState);
   const submitButton = document.getElementById('submit-story-button');
   const tagHelp = document.getElementById('story-tags-help');
   const archiveModeLabel = document.getElementById('archive-mode-label');
@@ -3579,6 +3719,10 @@ function setSubmissionBusy(isBusy) {
 function getSubmissionErrorMessage(error) {
   const useChinese = tagUiState.language === 'zh';
   const messages = {
+    'community-consent-required': {
+      zh: '社区规则已更新，请先阅读并确认“动笔之前”的内容。你已经填写的内容不会被清空。',
+      en: 'The community rules have changed. Please confirm "Before you write" first; your draft will stay on this page.'
+    },
     'authentication-required': {
       zh: '请先登录私密账户，再提交故事。你已经填写的内容不会被清空。',
       en: 'Sign in to your private account before submitting. Your draft will stay on this page.'
@@ -3756,7 +3900,8 @@ function initSubmitForm() {
         formError.textContent = getSubmissionErrorMessage(error);
         formError.focus();
       }
-      if (error.code === 'authentication-required') {
+      // A rules change mid-session brings the "Before you write" step back.
+      if (['authentication-required', 'community-consent-required'].includes(error.code)) {
         window.FFG_AUTH.restoreSession().catch(() => {});
       }
     } finally {

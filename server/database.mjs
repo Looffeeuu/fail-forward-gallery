@@ -353,6 +353,15 @@ export function createDatabase(databasePath) {
 
     -- A name the administrators give staff accounts, so the team list is
     -- readable without storing phone numbers. Members never get one.
+    -- Which version of each policy an account agreed to, and when.
+    CREATE TABLE IF NOT EXISTS policy_consents (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      policy TEXT NOT NULL CHECK (policy IN ('privacy', 'community')),
+      version TEXT NOT NULL,
+      accepted_at TEXT NOT NULL,
+      PRIMARY KEY (account_id, policy, version)
+    );
+
     CREATE TABLE IF NOT EXISTS staff_profiles (
       account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
       label TEXT NOT NULL,
@@ -457,6 +466,13 @@ export function createDatabase(databasePath) {
     SET role = ?, updated_at = ?
     WHERE phone_fingerprint = ? AND role = 'member'
   `);
+  const insertConsent = database.prepare([
+    'INSERT OR IGNORE INTO policy_consents (account_id, policy, version, accepted_at)',
+    'VALUES (?, ?, ?, ?)'
+  ].join(' '));
+  const selectConsent = database.prepare(
+    'SELECT 1 FROM policy_consents WHERE account_id = ? AND policy = ? AND version = ?'
+  );
   const selectAccountById = database.prepare(
     'SELECT id, role, status, created_at AS createdAt FROM accounts WHERE id = ?'
   );
@@ -1079,6 +1095,15 @@ export function createDatabase(databasePath) {
         applyRoleChange(account, role, changedByAccountId, changedAt.toISOString());
       });
       return selectAccountById.get(accountId);
+    },
+
+    // The first agreement to a version is kept; agreeing again changes nothing.
+    recordConsent({ accountId, policy, version, acceptedAt }) {
+      insertConsent.run(accountId, policy, version, acceptedAt.toISOString());
+    },
+
+    hasConsent(accountId, policy, version) {
+      return Boolean(accountId && selectConsent.get(accountId, policy, version));
     },
 
     findAccount(accountId) {

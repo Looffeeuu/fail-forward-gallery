@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Fail Forward Gallery Account, Story, and Moderation API
   version: 0.2.0
-  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, safety holds, team management, public approved-content feed, and role-protected human moderation contract.
+  description: China-first mobile verification, private cookie session, owned story submission, comments and follow-ups, withdrawal and appeals, reports, notifications, rankings, safety holds, team management, policy consent, public approved-content feed, and role-protected human moderation contract.
 servers:
   - url: /
     description: Same-origin deployment
@@ -57,11 +57,14 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [phone]
+              required: [phone, privacyVersion]
               properties:
                 phone:
                   type: string
                   pattern: '^\+861[3-9][0-9]{9}$'
+                privacyVersion:
+                  type: string
+                  description: The privacy notice version the person agreed to; must match policies.json (otherwise privacy-consent-required).
       responses:
         '202':
           description: Request accepted without revealing whether an account already exists.
@@ -98,8 +101,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [phone, code]
+              required: [phone, code, privacyVersion]
               properties:
+                privacyVersion:
+                  type: string
+                  description: The privacy notice version the person agreed to; must match policies.json (otherwise privacy-consent-required).
                 phone:
                   type: string
                   pattern: '^\+861[3-9][0-9]{9}$'
@@ -1078,6 +1084,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/me/consents:
+    post:
+      summary: Agree to the current version of a policy
+      operationId: acceptPolicy
+      description: Records the account, policy, version, and time. Writing a story requires the current community rules; signing in requires the current privacy notice (sent as privacyVersion with the code request and verification). Versions come from policies.json.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policy, version]
+              properties:
+                policy:
+                  type: string
+                  enum: [privacy, community]
+                version:
+                  type: string
+      responses:
+        '200':
+          description: Current agreement status for every policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [consents]
+                properties:
+                  consents:
+                    $ref: '#/components/schemas/Consents'
+        '400':
+          description: Unknown policy (invalid-policy).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/InvalidCsrf'
+        '409':
+          description: The version is not the current one (policy-version-outdated).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/moderation/stories:
     get:
       summary: List stories awaiting human review
@@ -1292,6 +1347,8 @@ components:
       additionalProperties: false
       required: [role, status]
       properties:
+        consents:
+          $ref: '#/components/schemas/Consents'
         role:
           type: string
           enum: [member, moderator, administrator]
@@ -1673,6 +1730,24 @@ components:
               createdAt:
                 type: string
                 format: date-time
+    Consents:
+      type: object
+      required: [privacy, community]
+      properties:
+        privacy:
+          $ref: '#/components/schemas/ConsentStatus'
+        community:
+          $ref: '#/components/schemas/ConsentStatus'
+    ConsentStatus:
+      type: object
+      required: [version, accepted]
+      properties:
+        version:
+          type: string
+          description: The current version in policies.json.
+        accepted:
+          type: boolean
+          description: Whether this account agreed to that exact version.
     ReviewDecision:
       type: object
       additionalProperties: false

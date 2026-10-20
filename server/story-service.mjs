@@ -95,7 +95,13 @@ function toPublicStory(story) {
   });
 }
 
-export function createStoryService({ database, now = () => new Date(), generateId = randomUUID }) {
+export function createStoryService({
+  database,
+  now = () => new Date(),
+  generateId = randomUUID,
+  // When set, writing a story requires agreeing to this community rules version.
+  policyVersions = null
+}) {
   if (!database) throw new TypeError('Story service database is required.');
 
   return Object.freeze({
@@ -104,6 +110,13 @@ export function createStoryService({ database, now = () => new Date(), generateI
         throw new StoryError('authentication-required', 401, 'Sign in before submitting a story.');
       }
 
+      if (policyVersions && !database.hasConsent(accountId, 'community', policyVersions.community)) {
+        throw new StoryError(
+          'community-consent-required',
+          403,
+          'Read and confirm the community rules before writing.'
+        );
+      }
       const story = normaliseStoryInput(input);
       return database.createStory({
         id: generateId(),

@@ -223,6 +223,10 @@ const authMessages = Object.freeze({
     zh: '暂时无法连接登录服务，请检查网络后重试。',
     en: 'The sign-in service could not be reached. Check your connection and try again.'
   },
+  'privacy-consent-required': {
+    zh: '请先阅读并勾选同意《隐私说明》，再获取验证码。',
+    en: 'Read and agree to the privacy notice before requesting a code.'
+  },
   'rate-limited': {
     zh: '请求过于频繁，请稍后再试。',
     en: 'Too many attempts. Wait a moment and try again.'
@@ -283,6 +287,13 @@ function syncAuthUiLanguage() {
       ? 'unconfigured'
       : environment === 'production' ? 'production' : 'development';
     privacyNote.textContent = authPrivacyNotes[noteKey][language];
+  }
+
+  const consentLabel = document.getElementById('auth-privacy-consent-label');
+  if (consentLabel) {
+    consentLabel.innerHTML = language === 'zh'
+      ? '我已阅读并同意<a href="#" data-page="privacy">《隐私说明》</a>，了解手机号只用于确认账户归属。'
+      : 'I have read and agree to the <a href="#" data-page="privacy">privacy notice</a>, and understand my number is used only to confirm account ownership.';
   }
 
   const accountLink = document.querySelector('.nav-account-link');
@@ -362,6 +373,13 @@ function initAuthUI() {
 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    // The number is only sent once the person has agreed to the privacy notice.
+    const consent = document.getElementById('auth-privacy-consent');
+    if (consent && !consent.checked) {
+      setAuthMessage('privacy-consent-required');
+      consent.focus();
+      return;
+    }
     try {
       await window.FFG_AUTH.requestPhoneCode(phoneInput?.value);
       codeInput?.focus();

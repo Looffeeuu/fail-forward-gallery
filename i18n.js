@@ -20,6 +20,8 @@ window.FFG_I18N = Object.freeze({
     'Review Queue': '审核队列',
     'Rankings': '榜单',
     'Team': '团队管理',
+    'Community rules': '社区规则',
+    'Privacy notice': '隐私说明',
     'Review team': '审核团队',
     'Administrators appoint reviewers and administrators here. Every change is recorded.': '管理员在这里任命审核员和管理员，每次变更都会被记录。',
     'Story rankings': '故事榜单',

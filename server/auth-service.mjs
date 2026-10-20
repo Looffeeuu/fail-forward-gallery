@@ -45,6 +45,8 @@ export function createAuthService({
   maxRequestsPerIpWindow = 20,
   requestWindowMs = 10 * 60 * 1000,
   developmentModeratorPhone = '',
+  // When set, sign-in requires agreeing to this privacy notice version.
+  policyVersions = null,
   now = () => new Date(),
   generateCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
   generateToken = () => randomBytes(32).toString('base64url')
@@ -68,6 +70,17 @@ export function createAuthService({
     return createHmac('sha256', secret)
       .update(`verification:${phoneFingerprint}:${nonce}:${code}`)
       .digest();
+  }
+
+  // The number is collected when a code is requested, so agreement comes first.
+  function requirePrivacyConsent(privacyVersion) {
+    if (policyVersions && privacyVersion !== policyVersions.privacy) {
+      throw new AuthError(
+        'privacy-consent-required',
+        400,
+        'Read and agree to the current privacy notice before signing in.'
+      );
+    }
   }
 
   function hashSessionToken(token) {
@@ -134,7 +147,8 @@ export function createAuthService({
   }
 
   return Object.freeze({
-    async requestCode({ phone, ip }) {
+    async requestCode({ phone, ip, privacyVersion }) {
+      requirePrivacyConsent(privacyVersion);
       const normalisedPhone = normaliseMainlandPhone(phone);
       if (!normalisedPhone) {
         throw new AuthError('invalid-phone', 400, 'Enter a valid mainland China mobile number.');
@@ -187,7 +201,8 @@ export function createAuthService({
       });
     },
 
-    verifyCode({ phone, code }) {
+    verifyCode({ phone, code, privacyVersion }) {
+      requirePrivacyConsent(privacyVersion);
       const normalisedPhone = normaliseMainlandPhone(phone);
       const normalisedCode = String(code || '').replace(/\s/g, '');
       if (!normalisedPhone || !/^\d{6}$/.test(normalisedCode)) {
@@ -220,6 +235,14 @@ export function createAuthService({
         new Date(timestamp),
         initialRole
       );
+      if (policyVersions) {
+        database.recordConsent({
+          accountId: account.id,
+          policy: 'privacy',
+          version: policyVersions.privacy,
+          acceptedAt: new Date(timestamp)
+        });
+      }
       if (account.status !== 'active') {
         throw new AuthError('account-suspended', 403, 'This account cannot sign in.');
       }

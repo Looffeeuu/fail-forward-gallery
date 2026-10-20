@@ -1,0 +1,195 @@
+{
+  "privacy": {
+    "version": "2026-10-20",
+    "status": "draft",
+    "title": { "zh": "隐私说明", "en": "Privacy notice" },
+    "intro": {
+      "zh": "Fail Forward Gallery 是由大学生团队运营的匿名失败故事分享与同伴支持项目。这份说明解释我们在你使用账户、投稿和阅读时处理哪些信息、为什么处理、谁能看到。",
+      "en": "Fail Forward Gallery is an anonymous failure-story and peer-support project run by a university student team. This notice explains what information is handled when you use an account, write, or read, why, and who can see it."
+    },
+    "sections": [
+      {
+        "heading": { "zh": "我们处理哪些信息", "en": "What we handle" },
+        "items": [
+          {
+            "zh": "手机号：只用于发送验证码和确认账户归属。服务器只保存手机号经密钥计算后的不可逆指纹，不保存明文手机号。正式接入短信服务后，发送验证码时手机号会交给短信服务商。",
+            "en": "Mobile number: used only to send a verification code and confirm who owns an account. The server keeps only an irreversible keyed fingerprint of the number, never the number itself. Once a real SMS service is connected, the number is passed to that provider to send the code."
+          },
+          {
+            "zh": "你写下的内容：故事、回应、后续更新，以及你提交的举报和申诉。",
+            "en": "What you write: stories, responses, follow-ups, and any reports or appeals you submit."
+          },
+          {
+            "zh": "审核与通知记录：每条内容的审核状态、理由和时间，以及发给你的站内通知。",
+            "en": "Review and notice records: each item's review status, reasons, and times, and the in-site notices sent to you."
+          },
+          {
+            "zh": "登录凭证：保持登录的会话 Cookie，以及防止跨站请求伪造的令牌。",
+            "en": "Sign-in credentials: a session cookie that keeps you signed in and a token that protects against cross-site request forgery."
+          },
+          {
+            "zh": "阅读统计：一个随机的访客 Cookie，用来避免同一个人重复计数。它在保存前与当天日期一起加密哈希，无法跨天关联到同一个人；逐条阅读记录 8 天后删除，之后只保留每篇故事的累计数。",
+            "en": "Reading figures: a random visitor cookie so the same person is not counted twice. It is hashed with the date before storage, so one person cannot be linked across days; individual view records are deleted after 8 days, leaving only each story's total."
+          },
+          {
+            "zh": "网络地址：只在服务器内存中短暂用于防止刷量和限制请求频率，不写入数据库。",
+            "en": "Network address: held briefly in server memory to limit abuse and request rates; it is never written to the database."
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "谁能看到什么", "en": "Who can see what" },
+        "items": [
+          {
+            "zh": "所有人：只能看到审核通过的匿名内容，看不到手机号、账户，也没有能把不同内容关联到同一个人的标识。",
+            "en": "Everyone: only approved anonymous content, with no mobile number, account, or anything that links different items to the same person."
+          },
+          {
+            "zh": "审核员：看到待审核的内容和必要上下文，看不到作者的手机号或账户身份，也看不到举报人是谁。",
+            "en": "Reviewers: content awaiting review and the context needed to judge it, but not the writer's number or account, nor who reported anything."
+          },
+          {
+            "zh": "管理员：管理审核团队。团队成员以管理员填写的名称显示。",
+            "en": "Administrators: manage the review team, whose members appear under names the administrators give them."
+          },
+          {
+            "zh": "你自己：在“我的账户”中看到自己的内容、审核状态、理由和阅读数据。阅读数字只有你能看到。",
+            "en": "You: your own content, review status, reasons, and reading figures in My account. Only you see those figures."
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "我们如何使用这些信息", "en": "How it is used" },
+        "items": [
+          {
+            "zh": "运行平台、人工审核、发送站内通知、防止滥用，以及生成不包含任何个人身份的故事榜单。我们不出售信息，也不用于广告。",
+            "en": "To run the platform, review content, send in-site notices, prevent abuse, and build story rankings that contain no personal identity. Information is never sold or used for advertising."
+          },
+          {
+            "zh": "如果你写下的内容显示你或他人可能处于紧急危险，审核员可能暂缓公开，并向你提供求助信息。【待团队补充：是否以及在什么情况下联系外部机构。】",
+            "en": "If what you write suggests you or someone else may be in immediate danger, a reviewer may hold it back and offer you support information. [To be completed by the team: whether and when outside services would be contacted.]"
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "保存、撤回与删除", "en": "Keeping, withdrawing, and deleting" },
+        "items": [
+          {
+            "zh": "你可以随时撤回自己的内容，撤回后会立即从公开页面移除。为了让审核过程可追溯，审核记录会保留。【待团队补充：保留期限。】",
+            "en": "You can withdraw your own content at any time; it leaves public pages immediately. Review records are kept so decisions stay accountable. [To be completed by the team: how long they are kept.]"
+          },
+          {
+            "zh": "删除账户和导出个人数据的功能尚未上线。【待团队补充：在此之前处理这类请求的联系方式。】",
+            "en": "Account deletion and data export are not available yet. [To be completed by the team: how to request them in the meantime.]"
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "说明的更新", "en": "Changes to this notice" },
+        "items": [
+          {
+            "zh": "这份说明有实质变化时会更新版本号，并请你重新阅读和同意。",
+            "en": "When this notice changes materially, its version changes and you will be asked to read and agree again."
+          }
+        ]
+      }
+    ]
+  },
+  "community": {
+    "version": "2026-10-20",
+    "status": "draft",
+    "title": { "zh": "社区规则", "en": "Community rules" },
+    "intro": {
+      "zh": "这里是一个分享失败、也接住失败的地方。下面的规则帮助每个人安全、放心地说出自己的经历。",
+      "en": "This is a place to share failure and to be met with care. These rules help everyone tell their story safely."
+    },
+    "summary": [
+      {
+        "zh": "这是同伴支持和教育项目，不是心理治疗或紧急救援服务。",
+        "en": "This is a peer-support and education project, not therapy or an emergency service."
+      },
+      {
+        "zh": "不要写姓名、电话、邮箱、学号、详细地址，也不要写能认出其他人（老师、同学、单位）的细节。",
+        "en": "Do not include names, phone numbers, email, student IDs, or addresses, or details that identify anyone else (teachers, classmates, employers)."
+      },
+      {
+        "zh": "所有内容都要经过人工审核才会公开。AI 安全筛查目前尚未接入。",
+        "en": "Everything is reviewed by a person before it is published. AI safety screening is not connected yet."
+      },
+      {
+        "zh": "如果内容显示你或他人可能处于紧急危险，它不会直接公开，你会看到求助信息。",
+        "en": "If what you write suggests you or someone else may be in immediate danger, it will not be published directly, and you will be shown support information."
+      },
+      {
+        "zh": "你可以选择别人如何回应（包括不接收回应），可以随时撤回自己的内容，被拒绝时可以申诉一次。",
+        "en": "You choose how others may respond (including not at all), can withdraw your content at any time, and can appeal each rejection once."
+      }
+    ],
+    "sections": [
+      {
+        "heading": { "zh": "欢迎的内容", "en": "Welcome here" },
+        "items": [
+          {
+            "zh": "真实的失败，以及随之而来的羞耻、失落、焦虑、孤独或愤怒。",
+            "en": "Real failures and the shame, loss, anxiety, loneliness, or anger that come with them."
+          },
+          {
+            "zh": "“没有变化”“仍然很难”也是真实有效的结局，不需要硬写成励志故事。",
+            "en": "\"Nothing has changed\" or \"it is still hard\" are valid endings; no story has to become inspirational."
+          },
+          {
+            "zh": "在作者选择的回应方式之内、尊重对方的回应。",
+            "en": "Respectful responses within the type of response the author chose."
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "不允许的内容", "en": "Not allowed" },
+        "items": [
+          {
+            "zh": "针对个人或群体的侮辱、贬低、威胁或骚扰。",
+            "en": "Insults, belittling, threats, or harassment aimed at a person or group."
+          },
+          {
+            "zh": "鼓励自伤、暴力或其他危险行为。",
+            "en": "Encouraging self-harm, violence, or other dangerous behaviour."
+          },
+          {
+            "zh": "公开他人的姓名、联系方式、学号、地址或其他能认出对方的信息。",
+            "en": "Revealing anyone's name, contact details, student ID, address, or other identifying information."
+          },
+          {
+            "zh": "广告、诈骗、引流和重复刷屏；冒充原作者发布后续。",
+            "en": "Advertising, scams, redirecting people elsewhere, or repeated posting; posting follow-ups as if you were the original author."
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "审核如何进行", "en": "How review works" },
+        "items": [
+          {
+            "zh": "故事、回应和公开的后续都要经过人工审核；审核员会写明理由，你可以在“我的账户”中查看。",
+            "en": "Stories, responses, and public follow-ups are all reviewed by a person, who records a reason you can read in My account."
+          },
+          {
+            "zh": "未通过的内容可以就每个审核决定申诉一次，由审核员复核。",
+            "en": "Each decision not to publish can be appealed once, and a reviewer looks at it again."
+          },
+          {
+            "zh": "你可以举报他人公开的内容；作者不会知道是谁举报的。",
+            "en": "You can report other people's public content; authors never learn who reported."
+          }
+        ]
+      },
+      {
+        "heading": { "zh": "安全优先", "en": "Safety first" },
+        "items": [
+          {
+            "zh": "当内容显示有人可能处于危险中时，审核员可以暂缓公开，并优先跟进。这不是惩罚，而是想先确认你一切安好。",
+            "en": "When content suggests someone may be in danger, reviewers can hold it back and follow up first. This is not a penalty; we want to check that you are okay."
+          }
+        ]
+      }
+    ]
+  }
+}

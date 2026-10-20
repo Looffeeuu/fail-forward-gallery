@@ -56,7 +56,11 @@
     'invalid-staff-label',
     'invalid-role',
     'cannot-change-own-role',
-    'staff-not-found'
+    'staff-not-found',
+    'privacy-consent-required',
+    'community-consent-required',
+    'policy-version-outdated',
+    'invalid-policy'
   ]);
 
   const CONTENT_PATHS = Object.freeze({
@@ -90,8 +94,23 @@
     const allowedStatuses = new Set(['active', 'suspended']);
     return Object.freeze({
       role: allowedRoles.has(account.role) ? account.role : 'member',
-      status: allowedStatuses.has(account.status) ? account.status : 'active'
+      status: allowedStatuses.has(account.status) ? account.status : 'active',
+      consents: sanitiseConsents(account.consents)
     });
+  }
+
+  function sanitiseConsents(consents) {
+    const entry = (value) => Object.freeze({
+      version: String(value?.version || ''),
+      accepted: value?.accepted === true
+    });
+    return Object.freeze({ privacy: entry(consents?.privacy), community: entry(consents?.community) });
+  }
+
+  // Sign-in requests carry the privacy notice version the person agreed to.
+  async function currentPrivacyVersion() {
+    const policies = await window.FFG_POLICIES_READY;
+    return policies?.privacy?.version || '';
   }
 
   function optionalString(value) {
@@ -384,14 +403,14 @@
       async requestPhoneCode(phone) {
         await request('/api/v1/auth/sms-code', {
           method: 'POST',
-          body: JSON.stringify({ phone })
+          body: JSON.stringify({ phone, privacyVersion: await currentPrivacyVersion() })
         });
       },
 
       async verifyPhoneCode({ phone, code }) {
         const payload = await request('/api/v1/auth/sms-code/verify', {
           method: 'POST',
-          body: JSON.stringify({ phone, code })
+          body: JSON.stringify({ phone, code, privacyVersion: await currentPrivacyVersion() })
         });
         if (!payload.account) throw createAuthError('verification-failed');
         return sanitiseAccount(payload.account);
@@ -616,6 +635,14 @@
           `/api/v1/admin/staff/${encodeURIComponent(accountId)}/role`,
           { method: 'POST', body: JSON.stringify({ role }) }
         ));
+      },
+
+      async acceptPolicy(policy, version) {
+        const payload = await adapter.requestJson('/api/v1/me/consents', {
+          method: 'POST',
+          body: JSON.stringify({ policy, version })
+        });
+        return sanitiseConsents(payload.consents);
       },
 
       async listNotifications() {

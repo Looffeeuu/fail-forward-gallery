@@ -26,7 +26,8 @@ const PUBLIC_FILES = new Set([
   'runtime-config.js',
   'auth.js',
   'auth-http-adapter.js',
-  'care-resources.js'
+  'care-resources.js',
+  'policies.json'
 ]);
 
 const CONTENT_TYPES = Object.freeze({
@@ -204,6 +205,7 @@ export function createHttpServer({
   viewService,
   rankingService,
   staffService,
+  consentService,
   moderationService,
   config,
   logger = console
@@ -218,6 +220,7 @@ export function createHttpServer({
     || !viewService
     || !rankingService
     || !staffService
+    || !consentService
     || !moderationService
     || !config
   ) {
@@ -244,6 +247,7 @@ export function createHttpServer({
 
       if (request.method === 'GET' && url.pathname === '/api/v1/auth/session') {
         const account = authService.restoreSession(cookies[SESSION_COOKIE]);
+        const session = account ? authService.resolveSession(cookies[SESSION_COOKIE]) : null;
         const csrfToken = createCsrfToken();
         response.setHeader('Set-Cookie', cookie(CSRF_COOKIE, csrfToken, {
           maxAge: 2 * 60 * 60,
@@ -251,7 +255,7 @@ export function createHttpServer({
         }));
         sendJson(response, 200, {
           authenticated: Boolean(account),
-          ...(account ? { account } : {}),
+          ...(account ? { account: { ...account, consents: consentService.status(session.accountId) } } : {}),
           csrfToken
         });
         return;
@@ -260,7 +264,11 @@ export function createHttpServer({
       if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms-code') {
         requireCsrf(request, cookies);
         const body = await readJson(request);
-        const result = await authService.requestCode({ phone: body.phone, ip: clientIp(request) });
+        const result = await authService.requestCode({
+          phone: body.phone,
+          ip: clientIp(request),
+          privacyVersion: body.privacyVersion
+        });
         sendJson(response, 202, result);
         return;
       }
@@ -268,7 +276,11 @@ export function createHttpServer({
       if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms-code/verify') {
         requireCsrf(request, cookies);
         const body = await readJson(request);
-        const result = authService.verifyCode({ phone: body.phone, code: body.code });
+        const result = authService.verifyCode({
+          phone: body.phone,
+          code: body.code,
+          privacyVersion: body.privacyVersion
+        });
         const csrfToken = createCsrfToken();
         response.setHeader('Set-Cookie', [
           cookie(SESSION_COOKIE, result.sessionToken, {
@@ -280,7 +292,11 @@ export function createHttpServer({
             secure: config.isProduction
           })
         ]);
-        sendJson(response, 200, { account: result.account, csrfToken });
+        const signedIn = authService.resolveSession(result.sessionToken);
+        sendJson(response, 200, {
+          account: { ...result.account, consents: consentService.status(signedIn.accountId) },
+          csrfToken
+        });
         return;
       }
 
@@ -529,6 +545,20 @@ export function createHttpServer({
             contentType: CONTENT_TYPES_BY_PATH[reportDecisionMatch[1]],
             contentId: decodeURIComponent(reportDecisionMatch[2]),
             input: body
+          })
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/v1/me/consents') {
+        requireCsrf(request, cookies);
+        const session = authService.resolveSession(cookies[SESSION_COOKIE]);
+        const body = await readJson(request);
+        sendJson(response, 200, {
+          consents: consentService.accept({
+            accountId: session?.accountId,
+            policy: body.policy,
+            version: body.version
           })
         });
         return;
