@@ -43,15 +43,33 @@ const CONTENT_TYPES = Object.freeze({
   '.ico': 'image/x-icon'
 });
 
+// Malformed input from the network must never throw: a cookie or path that
+// fails to decode is ignored or rejected, rather than crashing the process.
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 function parseCookies(header) {
   return String(header || '').split(';').reduce((cookies, part) => {
     const separatorIndex = part.indexOf('=');
     if (separatorIndex < 0) return cookies;
     const name = part.slice(0, separatorIndex).trim();
-    const value = part.slice(separatorIndex + 1).trim();
-    if (name) cookies[name] = decodeURIComponent(value);
+    const value = safeDecode(part.slice(separatorIndex + 1).trim());
+    if (name && value !== null) cookies[name] = value;
     return cookies;
   }, {});
+}
+
+function decodePathSegment(segment) {
+  const value = safeDecode(segment);
+  if (value === null) {
+    throw new AuthError('invalid-request', 400, 'The request path is not valid.');
+  }
+  return value;
 }
 
 function cookie(name, value, { maxAge, secure, sameSite = 'Strict' } = {}) {
@@ -154,7 +172,7 @@ function runtimeConfigSource(environment) {
 
 async function serveStatic(request, response, { projectRoot, environment }) {
   const url = new URL(request.url, 'http://localhost');
-  let relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+  let relativePath = decodePathSegment(url.pathname).replace(/^\/+/, '') || 'index.html';
 
   if (relativePath === 'runtime-config.js') {
     const body = runtimeConfigSource(environment);
@@ -227,12 +245,33 @@ export function createHttpServer({
     throw new TypeError('HTTP server dependencies are incomplete.');
   }
 
-  return createNodeServer(async (request, response) => {
+  // Last line of defence: a request handler that rejects for any reason fails
+  // only that request. An unhandled rejection would stop the whole process.
+  return createNodeServer((request, response) => {
+    handleRequest(request, response).catch((error) => {
+      logger.error('Request handler failed', { method: request.method, error: error?.message });
+      if (!response.headersSent) {
+        sendJson(response, 500, {
+          error: { code: 'internal-error', message: 'The service is temporarily unavailable.' }
+        });
+      } else {
+        response.destroy();
+      }
+    });
+  });
+
+  async function handleRequest(request, response) {
     Object.entries(securityHeaders(config.isProduction)).forEach(([name, value]) => {
       response.setHeader(name, value);
     });
 
-    const url = new URL(request.url, 'http://localhost');
+    let url;
+    try {
+      url = new URL(request.url, 'http://localhost');
+    } catch {
+      sendJson(response, 400, { error: { code: 'invalid-request', message: 'The request is not valid.' } });
+      return;
+    }
     const cookies = parseCookies(request.headers.cookie);
 
     try {
@@ -365,7 +404,7 @@ export function createHttpServer({
         const body = await readJson(request);
         const responseInput = {
           accountId: session.accountId,
-          storyId: decodeURIComponent(storyResponseMatch[1]),
+          storyId: decodePathSegment(storyResponseMatch[1]),
           input: body
         };
         if (isComment) {
@@ -396,7 +435,7 @@ export function createHttpServer({
         const contentRequest = {
           accountId: session?.accountId,
           contentType: CONTENT_TYPES_BY_PATH[authorControlMatch[1]],
-          contentId: decodeURIComponent(authorControlMatch[2])
+          contentId: decodePathSegment(authorControlMatch[2])
         };
         if (authorControlMatch[3] === 'withdraw') {
           sendJson(response, 200, { content: authorControlService.withdraw(contentRequest) });
@@ -433,7 +472,7 @@ export function createHttpServer({
         const body = await readJson(request);
         sendJson(response, 200, staffService.changeRole({
           session,
-          accountId: decodeURIComponent(staffRoleMatch[1]),
+          accountId: decodePathSegment(staffRoleMatch[1]),
           role: body.role
         }));
         return;
@@ -458,7 +497,7 @@ export function createHttpServer({
         }
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
         viewService.recordView({
-          storyId: decodeURIComponent(viewMatch[1]),
+          storyId: decodePathSegment(viewMatch[1]),
           visitorId,
           accountId: session?.accountId,
           userAgent: String(request.headers['user-agent'] || ''),
@@ -475,7 +514,7 @@ export function createHttpServer({
       if (recommendationMatch && ['PUT', 'DELETE'].includes(request.method)) {
         requireCsrf(request, cookies);
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
-        const storyId = decodeURIComponent(recommendationMatch[1]);
+        const storyId = decodePathSegment(recommendationMatch[1]);
         const result = request.method === 'PUT'
           ? moderationService.recommendStory({ session, storyId, input: await readJson(request) })
           : moderationService.unrecommendStory({ session, storyId });
@@ -501,7 +540,7 @@ export function createHttpServer({
           content: moderationService.decideHeld({
             session,
             contentType: CONTENT_TYPES_BY_PATH[heldDecisionMatch[1]],
-            contentId: decodeURIComponent(heldDecisionMatch[2]),
+            contentId: decodePathSegment(heldDecisionMatch[2]),
             input: body
           })
         });
@@ -519,7 +558,7 @@ export function createHttpServer({
           report: reportService.createReport({
             accountId: session?.accountId,
             contentType: CONTENT_TYPES_BY_PATH[reportMatch[1]],
-            contentId: decodeURIComponent(reportMatch[2]),
+            contentId: decodePathSegment(reportMatch[2]),
             input: body
           })
         });
@@ -543,7 +582,7 @@ export function createHttpServer({
           result: moderationService.decideReports({
             session,
             contentType: CONTENT_TYPES_BY_PATH[reportDecisionMatch[1]],
-            contentId: decodeURIComponent(reportDecisionMatch[2]),
+            contentId: decodePathSegment(reportDecisionMatch[2]),
             input: body
           })
         });
@@ -616,7 +655,7 @@ export function createHttpServer({
         requireCsrf(request, cookies);
         const session = authService.resolveSession(cookies[SESSION_COOKIE]);
         const body = await readJson(request);
-        const contentId = decodeURIComponent(decisionMatch[2]);
+        const contentId = decodePathSegment(decisionMatch[2]);
         if (decisionMatch[1] === 'stories') {
           const story = moderationService.decideStory({ session, storyId: contentId, input: body });
           sendJson(response, 200, { story });
@@ -672,5 +711,5 @@ export function createHttpServer({
         response.destroy();
       }
     }
-  });
+  }
 }
