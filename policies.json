@@ -12,8 +12,8 @@
         "heading": { "zh": "我们处理哪些信息", "en": "What we handle" },
         "items": [
           {
-            "zh": "手机号：只用于发送验证码和确认账户归属。服务器只保存手机号经密钥计算后的不可逆指纹，不保存明文手机号。正式接入短信服务后，发送验证码时手机号会交给短信服务商。",
-            "en": "Mobile number: used only to send a verification code and confirm who owns an account. The server keeps only an irreversible keyed fingerprint of the number, never the number itself. Once a real SMS service is connected, the number is passed to that provider to send the code."
+            "zh": "手机号：只用于发送验证码和确认账户归属。服务器只保存手机号经密钥计算后的指纹，不保存明文手机号。由于手机号的取值范围有限，如果数据库和服务器密钥同时泄露，理论上可以通过穷举还原，因此正式环境中两者分开保管。正式接入短信服务后，发送验证码时手机号会交给短信服务商。",
+            "en": "Mobile number: used only to send a verification code and confirm who owns an account. The server keeps only a keyed fingerprint of the number, never the number itself. Because phone numbers are a limited set, someone holding both the database and the server key could in principle recover numbers by trying them all, so the two are kept separately in production. Once a real SMS service is connected, the number is passed to that provider to send the code."
           },
           {
             "zh": "你写下的内容：故事、回应、后续更新，以及你提交的举报和申诉。",

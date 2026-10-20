@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Mirrors the Node server's CSP header for static hosting (GitHub Pages), which cannot set headers. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'">
 <title>Fail Forward Gallery — 失败故事匿名分享平台</title>
 <link rel="stylesheet" href="styles.css">
 </head>

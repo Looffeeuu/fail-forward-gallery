@@ -1106,7 +1106,7 @@ function renderModalStory(story) {
 
   content.innerHTML = `
     <article class="story-detail">
-      <span class="story-board">${formatBoardName(story.board)}</span>
+      <span class="story-board">${escapeHtml(formatBoardName(story.board))}</span>
       <h2 id="modal-title">${escapeHtml(story.title)}</h2>
       <p class="story-full-text">${escapeHtml(story.text)}</p>
       <p class="story-attribution">${escapeHtml(story.attribution)}</p>
@@ -1744,7 +1744,7 @@ function renderComments(story) {
     ? story.comments.map((comment) => `
         <article class="comment-item">
           <strong>${escapeHtml(tagUiState.language === 'zh' && comment.author.startsWith('Anonymous') ? '匿名用户' : comment.author)}</strong>
-          <span class="comment-type">${formatCommentType(comment.type)}</span>
+          <span class="comment-type">${escapeHtml(formatCommentType(comment.type))}</span>
           <p>${escapeHtml(comment.text)}</p>
           ${isServerStory(story) ? renderReportControl('comment', comment.id) : ''}
         </article>
